@@ -1,0 +1,103 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "autoincrement",
+ "creation": "2026-11-08 01:30:23.725087",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "run",
+  "seq",
+  "plan_key",
+  "column_break_1",
+  "ref_doctype",
+  "ref_name",
+  "state",
+  "error"
+ ],
+ "fields": [
+  {
+   "fieldname": "run",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Run",
+   "options": "Demo Data Run",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "seq",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Sequence",
+   "read_only": 1
+  },
+  {
+   "fieldname": "plan_key",
+   "fieldtype": "Data",
+   "label": "Plan Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break",
+   "label": "Column Break 1"
+  },
+  {
+   "description": "Plain data, not a Link, so registry rows never block deletes",
+   "fieldname": "ref_doctype",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Reference DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ref_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Reference Name",
+   "read_only": 1
+  },
+  {
+   "description": "Reused: an existing document the run used but does not own; uninstall leaves it",
+   "fieldname": "state",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "State",
+   "options": "Created\nSubmitted\nCancelled\nReused\nFailed\nSkipped\nDeleted",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error",
+   "fieldtype": "Small Text",
+   "label": "Error",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-08 01:30:23.725087",
+ "modified_by": "Administrator",
+ "module": "Demo Data",
+ "name": "Demo Data Record",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

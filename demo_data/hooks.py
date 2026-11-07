@@ -277,3 +277,13 @@ app_license = "gpl-3.0"
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
 
+
+# Demo data
+# ---------
+
+# The desk's "Delete Demo Data" button runs our uninstall for companies we created (DEC-19)
+override_whitelisted_methods = {
+	"erpnext.setup.demo.clear_demo_data": "demo_data.api.clear_demo_data",
+}
+
+required_apps = ["frappe/erpnext", "resilient-tech/india-compliance"]

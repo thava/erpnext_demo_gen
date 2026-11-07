@@ -1,0 +1,149 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "format:DD-RUN-{#####}",
+ "creation": "2026-11-08 01:30:23.413824",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "status",
+  "pack",
+  "pack_version",
+  "size",
+  "seed",
+  "end_date",
+  "column_break_1",
+  "company",
+  "started_at",
+  "finished_at",
+  "section_details",
+  "params",
+  "app_versions",
+  "counts",
+  "error"
+ ],
+ "fields": [
+  {
+   "default": "Planned",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Planned\nRunning\nCompleted\nFailed\nUninstalling\nUninstalled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pack",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Pack",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pack_version",
+   "fieldtype": "Int",
+   "label": "Pack Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "size",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Size",
+   "read_only": 1
+  },
+  {
+   "fieldname": "seed",
+   "fieldtype": "Int",
+   "label": "Seed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "label": "End Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break",
+   "label": "Column Break 1"
+  },
+  {
+   "description": "Plain data, not a Link: Transaction Deletion Record deletes rows that link to the company, and a link would block deleting it",
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finished_at",
+   "fieldtype": "Datetime",
+   "label": "Finished At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_details",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "params",
+   "fieldtype": "JSON",
+   "label": "Resolved Parameters",
+   "read_only": 1
+  },
+  {
+   "fieldname": "app_versions",
+   "fieldtype": "JSON",
+   "label": "App Versions",
+   "read_only": 1
+  },
+  {
+   "fieldname": "counts",
+   "fieldtype": "JSON",
+   "label": "Counts",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error",
+   "fieldtype": "Long Text",
+   "label": "Error",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-08 01:30:23.413824",
+ "modified_by": "Administrator",
+ "module": "Demo Data",
+ "name": "Demo Data Run",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "pack"
+}

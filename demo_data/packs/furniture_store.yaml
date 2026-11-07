@@ -1,0 +1,51 @@
+# Furniture showroom with a dealer and project channel.
+schema_version: 1
+id: furniture_store
+extends: india_trading
+pack_version: 1
+title: Furniture Store
+
+company:
+  industry_nouns: [Furniture, Interiors, Furnishings, Home Studio]
+  warehouses: [Showroom, Godown]
+  funding: {share_capital: 5000000, term_loan: 2000000}
+
+parties:
+  customer_nouns: [Interiors, Builders, Developers, Hospitality, Decor, Homes, Infra, Furnishers, Workspaces]
+  supplier_nouns: [Woodcraft, Furniture Works, Timbers, Upholstery, Foam Industries, Steel Furniture, Cane Crafts]
+  walk_in_customer: true
+
+channels:
+  - id: showroom
+    share: 0.65
+    party_class: b2c
+    payment: {immediate: 0.8, net_30: 0.2}
+    flow: [sales_invoice, payment_entry]
+  - id: dealers_projects
+    share: 0.35
+    party_class: b2b
+    payment: {net_15: 0.4, net_30: 0.6}
+    flow: [quotation, sales_order, delivery_note, sales_invoice, payment_entry]
+
+catalog:
+  item_groups: [Living Room, Bedroom, Dining, Office, Storage]
+  # collection names fill {series}; a family's options fill its other placeholders
+  series: [Aria, Kensington, Chettinad, Nila, Veda, Malabar, Heritage, Oslo, Milano, Aspen, Cove, Arcadia,
+           Sahara, Kaveri, Amara, Zen, Linea, Tuscan, Bodhi, Riviera, Sierra, Nordic, Regal, Kyoto, Bastion,
+           Carlton, Avalon, Marina, Tanjore, Mysore, Coorg, Konark, Elgin, Hampton, Lumen, Monroe, Orchid,
+           Prism, Quartz, Raga, Sutra, Tara, Utsav, Vana, Willow, Yatra, Zara, Indus, Ganga, Deccan]
+  families:
+    - {id: sofa,         group: Living Room, name_template: "{series} {n}-Seater Sofa", options: {n: [2, 3, 5]}, count: 6, hsn: "94016100", gst_rate: 18, price_range: [18000, 65000], cost_ratio: [0.55, 0.70], reorder: {min: 4, max: 20}}
+    - {id: armchair,     group: Living Room, name_template: "{series} Armchair",        count: 4, hsn: "94016900", gst_rate: 18, price_range: [6000, 18000],  cost_ratio: [0.55, 0.70], reorder: {min: 4, max: 16}}
+    - {id: cane_chair,   group: Living Room, name_template: "{series} Cane Chair",      count: 3, hsn: "94015200", gst_rate: 5,  price_range: [2500, 7000],   cost_ratio: [0.50, 0.65], reorder: {min: 6, max: 30}}
+    - {id: bed,          group: Bedroom,     name_template: "{series} {size} Bed", options: {size: [Single, Queen, King]}, count: 5, hsn: "94035010", gst_rate: 18, price_range: [22000, 70000], cost_ratio: [0.55, 0.70], reorder: {min: 2, max: 10}}
+    - {id: wardrobe,     group: Bedroom,     name_template: "{series} {n}-Door Wardrobe", options: {n: [2, 3, 4]}, count: 4, hsn: "94035090", gst_rate: 18, price_range: [15000, 48000], cost_ratio: [0.55, 0.70], reorder: {min: 2, max: 8}}
+    - {id: mattress,     group: Bedroom,     name_template: "{series} Spring Mattress", count: 4, hsn: "94042910", gst_rate: 18, price_range: [9000, 32000],  cost_ratio: [0.50, 0.65], reorder: {min: 4, max: 20}}
+    - {id: dining_set,   group: Dining,      name_template: "{series} {n}-Seater Dining Set", options: {n: [4, 6, 8]}, count: 4, hsn: "94036000", gst_rate: 18, price_range: [20000, 75000], cost_ratio: [0.55, 0.70], reorder: {min: 2, max: 8}}
+    - {id: office_chair, group: Office,      name_template: "{series} Office Chair",    count: 5, hsn: "94013000", gst_rate: 18, price_range: [4500, 22000],  cost_ratio: [0.55, 0.70], reorder: {min: 6, max: 30}}
+    - {id: office_desk,  group: Office,      name_template: "{series} Office Desk",     count: 3, hsn: "94033090", gst_rate: 18, price_range: [8000, 30000],  cost_ratio: [0.55, 0.70], reorder: {min: 3, max: 12}}
+    - {id: cabinet,      group: Storage,     name_template: "{series} Storage Cabinet", count: 4, hsn: "94033010", gst_rate: 18, price_range: [7000, 26000],  cost_ratio: [0.55, 0.70], reorder: {min: 3, max: 12}}
+    - {id: kitchen_rack, group: Storage,     name_template: "{series} Kitchen Rack",    count: 2, hsn: "94034000", gst_rate: 18, price_range: [3500, 12000],  cost_ratio: [0.50, 0.65], reorder: {min: 4, max: 16}}
+
+behavior:
+  seasonality: {monthly_index: [0.8, 0.8, 0.9, 0.9, 1.0, 1.0, 1.1, 1.3, 1.4, 0.9, 0.9, 1.0]}

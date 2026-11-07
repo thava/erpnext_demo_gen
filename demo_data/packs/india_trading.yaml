@@ -1,0 +1,35 @@
+# Shared base for Indian trading businesses. Not installable on its own.
+# Child packs override keys; a list replaces the base list unless the child
+# writes the key with a trailing "+" (e.g. "warehouses+:"), which appends.
+schema_version: 1
+id: india_trading
+abstract: true
+pack_version: 1
+title: India Trading (base)
+
+company:
+  industry_nouns: [Traders]
+  home_state: Tamil Nadu            # overridable with --home-state
+  warehouses: [Stores]
+  funding: {share_capital: 5000000, term_loan: 0}
+
+parties:
+  customer_nouns: [Traders, Enterprises, Agencies, Stores, Distributors]
+  supplier_nouns: [Industries, Manufacturers, Suppliers, Works]
+  customer_group: {b2b: Commercial, b2c: Individual}
+  supplier_group: Distributor
+  supplier_home_state_share: 0.5      # suppliers are spread wider than customers
+  walk_in_customer: false             # one shared "Walk-in Customer" for anonymous b2c sales
+
+behavior:
+  #                 Apr  May  Jun  Jul  Aug  Sep  Oct  Nov  Dec  Jan  Feb  Mar
+  seasonality: {monthly_index: [0.9, 0.9, 0.9, 1.0, 1.0, 1.0, 1.2, 1.2, 1.0, 0.9, 0.9, 1.1]}
+  customer_skew: {distribution: pareto, alpha: 1.2}
+  geography: {home_state_share: 0.75}
+  gst_categories: {registered: 0.70, unregistered: 0.28, sez: 0.02}
+  payment_outcomes: {on_time: 0.70, late: 0.20, open_overdue: 0.10}
+  rates: {returns: 0.02, cancelled: 0.01, left_in_draft: 0.02}
+
+sizes:
+  small:  {months: 12, customers: 15,  suppliers: 8,  items: 40,  sales_invoices: 150,  purchase_invoices: 60}
+  medium: {months: 24, customers: 150, suppliers: 30, items: 250, sales_invoices: 4000, purchase_invoices: 900}

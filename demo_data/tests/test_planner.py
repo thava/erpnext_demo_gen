@@ -1,0 +1,194 @@
+import datetime as dt
+from collections import Counter
+
+from frappe.tests import UnitTestCase
+
+from demo_data.packs import load_pack
+from demo_data.planner import PlanContext, make_plan
+
+
+def plan(size="small", seed=1, home="Tamil Nadu"):
+	pack = load_pack("furniture_store")
+	ctx = PlanContext(pack, size, seed, home, dt.date(2025, 11, 9), dt.date(2026, 11, 8))
+	return pack, make_plan(ctx)
+
+
+def by_doctype(docs):
+	return Counter(d.doctype for d in docs)
+
+
+class TestMasterPlan(UnitTestCase):
+	def test_deterministic(self):
+		_, a = plan(seed=7)
+		_, b = plan(seed=7)
+		self.assertEqual([(d.key, d.params) for d in a], [(d.key, d.params) for d in b])
+		_, c = plan(seed=8)
+		self.assertNotEqual([d.params for d in a], [d.params for d in c])
+
+	def test_small_counts_follow_the_size(self):
+		pack, docs = plan()
+		size = pack["sizes"]["small"]
+		counts = by_doctype(docs)
+		self.assertEqual(counts["Item"], size["items"])
+		self.assertEqual(counts["Item Price"], 2 * size["items"])
+		self.assertEqual(counts["Supplier"], size["suppliers"])
+		self.assertEqual(counts["Customer"], size["customers"] + 1)  # + Walk-in Customer
+		self.assertEqual(counts["Item Group"], len(pack["catalog"]["item_groups"]))
+		self.assertEqual(counts["Payment Terms Template"], 2)  # net_15, net_30
+
+	def test_medium_scales(self):
+		pack, docs = plan("medium")
+		self.assertEqual(by_doctype(docs)["Item"], pack["sizes"]["medium"]["items"])
+
+	def test_refs_point_backwards_and_seq_is_ordered(self):
+		_, docs = plan()
+		seen = set()
+		for i, d in enumerate(docs, 1):
+			self.assertEqual(d.seq, i)
+			self.assertTrue(set(d.depends_on) <= seen, d.key)
+			seen.add(d.key)
+
+	def test_names_unique_and_counter_free(self):
+		_, docs = plan("medium")
+		for doctype in ("Item", "Customer", "Supplier"):
+			names = [d.params["name"] for d in docs if d.doctype == doctype]
+			self.assertEqual(len(names), len(set(names)), doctype)
+		for d in docs:
+			if d.doctype == "Item":
+				self.assertNotRegex(d.params["name"], r"\b0\d\d\b")  # codes stay out of display names
+
+	def test_parties_have_consistent_gst_data(self):
+		from india_compliance.gst_india.utils import validate_gstin
+
+		from demo_data.india.geo import state_code
+
+		_, docs = plan("medium")
+		categories = Counter()
+		for d in docs:
+			if d.doctype not in ("Customer", "Supplier"):
+				continue
+			p = d.params
+			categories[p["gst_category"]] += 1
+			if p.get("gstin"):
+				validate_gstin(p["gstin"])
+				self.assertEqual(p["gstin"][:2], state_code(p["address"]["state"]), d.key)
+				self.assertNotEqual(p["gst_category"], "Unregistered")
+			else:
+				self.assertEqual(p["gst_category"], "Unregistered")
+		self.assertGreater(categories["Registered Regular"], 0)
+		self.assertGreater(categories["Unregistered"], 0)
+
+	def test_b2c_customers_are_individuals_in_home_state(self):
+		_, docs = plan(home="Karnataka")
+		b2c = [d.params for d in docs if d.doctype == "Customer" and d.params["type"] == "Individual"]
+		self.assertTrue(b2c)
+		self.assertTrue(all(p["address"]["state"] == "Karnataka" for p in b2c))
+
+	def test_items_have_prices_with_margin(self):
+		_, docs = plan()
+		prices = {
+			(d.params["list"], d.params["item"]["$ref"]): d.params["rate"]
+			for d in docs
+			if d.doctype == "Item Price"
+		}
+		for d in docs:
+			if d.doctype == "Item":
+				key = d.key
+				self.assertLess(prices[("buying", key)], prices[("selling", key)])
+				self.assertTrue(d.params["suppliers"])
+
+
+class TestTransactionPlan(UnitTestCase):
+	def setUp(self):
+		self.pack, self.docs = plan()
+		self.tx = [d for d in self.docs if d.key.startswith("T:")]
+
+	def test_transactions_in_date_and_time_order(self):
+		stamps = [(d.posting_date, d.posting_time) for d in self.tx]
+		self.assertEqual(stamps, sorted(stamps))
+		self.assertEqual(len(stamps), len(set(stamps)), "posting times must be unique within a day")
+		self.assertTrue(all(dt.date(2025, 11, 9) <= d.posting_date <= dt.date(2026, 11, 8) for d in self.tx))
+
+	def test_funding_comes_first(self):
+		self.assertEqual(self.tx[0].builder, "funding_entry")
+		self.assertGreater(self.tx[0].params["share_capital"] + self.tx[0].params["term_loan"], 0)
+
+	def test_every_item_is_stocked_on_day_one(self):
+		first_day = self.tx[0].posting_date
+		opening = {
+			line["item"]["$ref"]
+			for d in self.tx
+			if d.builder == "purchase_order" and d.posting_date == first_day
+			for line in d.params["lines"]
+		}
+		self.assertEqual(opening, {d.key for d in self.docs if d.doctype == "Item"})
+
+	def test_no_item_repeats_within_a_document(self):
+		for d in self.tx:
+			lines = d.params.get("lines") or []
+			items = [line["item"]["$ref"] for line in lines]
+			self.assertEqual(len(items), len(set(items)), d.key)
+
+	def test_state_coverage(self):
+		builders = Counter(d.builder for d in self.tx)
+		for builder in (
+			"quotation",
+			"sales_order",
+			"delivery_note",
+			"invoice_from_delivery",
+			"counter_sales_invoice",
+			"receive_payment",
+			"material_request",
+			"purchase_order",
+			"purchase_receipt",
+			"purchase_invoice",
+			"pay_supplier",
+			"sales_return",
+			"cancel",
+		):
+			self.assertGreater(builders[builder], 0, builder)
+		self.assertTrue(any(d.params.get("draft") for d in self.tx if d.builder == "counter_sales_invoice"))
+		self.assertTrue(any(d.params.get("fraction") for d in self.tx if d.builder == "receive_payment"))
+
+	def test_sales_volume_follows_size(self):
+		invoices = sum(1 for d in self.tx if d.builder in ("counter_sales_invoice", "invoice_from_delivery"))
+		target = self.pack["sizes"]["small"]["sales_invoices"]
+		self.assertLess(abs(invoices - target), target * 0.15)
+
+
+def plan_for_pack(pack_id, size="small", seed=1):
+	pack = load_pack(pack_id)
+	ctx = PlanContext(pack, size, seed, "Tamil Nadu", dt.date(2025, 11, 9), dt.date(2026, 11, 8))
+	return pack, make_plan(ctx)
+
+
+class TestElectricalPack(UnitTestCase):
+	def setUp(self):
+		self.pack, self.docs = plan_for_pack("electrical_distributor")
+
+	def test_dealer_orders_skip_quotations(self):
+		orders = [d for d in self.docs if d.builder == "sales_order"]
+		direct = [d for d in orders if "quotation" not in d.params]
+		quoted = [d for d in orders if "quotation" in d.params]
+		self.assertTrue(direct, "dealer channel orders directly")
+		self.assertTrue(quoted, "project channel quotes first")
+
+	def test_channel_quantities(self):
+		low, high = next(c for c in self.pack["channels"] if c["id"] == "dealers")["quantity"]
+		direct = [d for d in self.docs if d.builder == "sales_order" and "quotation" not in d.params]
+		qtys = [line["qty"] for d in direct for line in d.params["lines"]]
+		self.assertTrue(all(1 <= q <= high for q in qtys))
+		self.assertGreaterEqual(max(qtys), low)
+
+
+class TestReorderFit(UnitTestCase):
+	def test_reorder_levels_cover_medium_demand(self):
+		pack, docs = plan_for_pack("furniture_store", "medium")
+		pack_levels = {f["id"]: f["reorder"] for f in pack["catalog"]["families"]}
+		items = [d for d in docs if d.doctype == "Item"]
+		raised = sum(1 for d in items if d.params["reorder"]["max"] > pack_levels[d.params["family"]]["max"])
+		self.assertGreater(raised, 0)
+		for d in items:
+			self.assertLess(d.params["reorder"]["min"], d.params["reorder"]["max"])
+		invoices = sum(1 for d in docs if d.builder == "purchase_invoice")
+		self.assertLess(invoices, 2 * pack["sizes"]["medium"]["purchase_invoices"])
