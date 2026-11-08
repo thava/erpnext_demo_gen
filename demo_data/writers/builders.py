@@ -260,8 +260,7 @@ def _account(company: str, account_name: str) -> str:
 
 
 def funding_entry(p, w, pd):
-	bank = frappe.get_cached_value("Company", w.company, "default_bank_account")
-	accounts = [{"account": bank, "debit_in_account_currency": p.share_capital + p.term_loan}]
+	accounts = [{"account": w.bank_ledger, "debit_in_account_currency": p.share_capital + p.term_loan}]
 	if p.share_capital:
 		accounts.append(
 			{"account": _account(w.company, "Capital Stock"), "credit_in_account_currency": p.share_capital}
@@ -279,7 +278,9 @@ def funding_entry(p, w, pd):
 			"accounts": accounts,
 		}
 	)
-	return _save(doc, pd)
+	_save(doc, pd)
+	doc.db_set("clearance_date", pd.posting_date)  # the money is in the bank on day one
+	return doc
 
 
 # ---------------------------------------------------------------- buying
@@ -352,10 +353,8 @@ def pay_supplier(p, w, pd):
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
 	doc = get_payment_entry("Purchase Invoice", p.invoice, reference_date=pd.posting_date)
-	doc.mode_of_payment = "Wire Transfer" if frappe.db.exists("Mode of Payment", "Wire Transfer") else None
-	doc.reference_no = f"NEFT{pd.seq:07d}"
-	doc.reference_date = pd.posting_date
-	return _save(doc, pd)
+	_payment_method(doc, w, p, pd, "paid_from")
+	return _cleared(_save(doc, pd), p)
 
 
 # ---------------------------------------------------------------- selling
@@ -468,28 +467,75 @@ def receive_payment(p, w, pd):
 	outstanding = frappe.db.get_value("Sales Invoice", p.invoice, "outstanding_amount")
 	amount = round(outstanding * p.fraction) if p.get("fraction") else None
 	doc = get_payment_entry("Sales Invoice", p.invoice, party_amount=amount, reference_date=pd.posting_date)
-	_payment_account(doc, w, pd, p.cash, "paid_to")
-	return _save(doc, pd)
+	_payment_method(doc, w, p, pd, "paid_to")
+	return _cleared(_save(doc, pd), p)
 
 
 def refund(p, w, pd):
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
 	doc = get_payment_entry("Sales Invoice", p.credit_note, reference_date=pd.posting_date)
-	_payment_account(doc, w, pd, p.cash, "paid_from")
-	return _save(doc, pd)
+	_payment_method(doc, w, p, pd, "paid_from")
+	return _cleared(_save(doc, pd), p)
 
 
-def _payment_account(doc, w, pd, cash: bool, field: str):
-	if cash:
-		doc.mode_of_payment = "Cash"
-		doc.set(field, frappe.get_cached_value("Company", w.company, "default_cash_account"))
-	else:
-		doc.mode_of_payment = (
-			"Wire Transfer" if frappe.db.exists("Mode of Payment", "Wire Transfer") else None
-		)
-		doc.reference_no = f"UTR{pd.seq:07d}"
+def _payment_method(doc, w, p, pd, field: str):
+	"""Mode, account and bank reference as planned. Bank payments always use the demo's
+	own bank accounts, never the company's default (which may be the user's).
+
+	Plans made before payment methods existed carry only "cash"."""
+	mode = p.get("mode") or ("Cash" if p.get("cash") else "Wire Transfer")
+	doc.mode_of_payment = mode
+	if mode == "Cash":
+		doc.set(field, w.cash_account)
+		doc.bank_account = None
+		return
+	target = w.accounts.get(p.get("account") or "main") or {"ledger": w.bank_ledger, "bank_account": w.bank_account}
+	doc.set(field, target["ledger"])
+	if target.get("bank_account"):
+		doc.bank_account = target["bank_account"]
+	doc.reference_no = p.get("reference") or f"UTR{pd.seq:07d}"
 	doc.reference_date = pd.posting_date
+
+
+def bank_transfer(p, w, pd):
+	"""Weekly Internal Transfer into the main account: the collection account's balance
+	(swept by NEFT) or the cash in hand (deposited at the branch)."""
+	from erpnext.accounts.utils import get_balance_on
+
+	source = w.accounts["collection"]["ledger"] if p.source == "collection" else w.cash_account
+	target = w.accounts["main"]["ledger"]
+	amount = get_balance_on(account=source, date=pd.posting_date, company=w.company)
+	if amount <= 0:
+		frappe.throw(f"Nothing to transfer from {source} on {pd.posting_date} (balance {amount})")
+	doc = frappe.get_doc(
+		{
+			"doctype": "Payment Entry",
+			"payment_type": "Internal Transfer",
+			"company": w.company,
+			"mode_of_payment": "Wire Transfer" if p.source == "collection" else "Cash",
+			"paid_from": source,
+			"paid_to": target,
+			"paid_amount": amount,
+			"received_amount": amount,
+			"source_exchange_rate": 1,
+			"target_exchange_rate": 1,
+			"bank_account": w.accounts["main"]["bank_account"],
+			"reference_no": p.reference,
+			"reference_date": pd.posting_date,
+			"remarks": "Weekly sweep of the collection account"
+			if p.source == "collection"
+			else "Weekly cash deposit",
+		}
+	)
+	return _cleared(_save(doc, pd), p)
+
+
+def _cleared(doc, p):
+	"""The date the bank cleared the payment, as the Bank Reconciliation Tool would set it."""
+	if p.get("clearance_date"):
+		doc.db_set("clearance_date", p.clearance_date)
+	return doc
 
 
 def cancel(p, w, pd):

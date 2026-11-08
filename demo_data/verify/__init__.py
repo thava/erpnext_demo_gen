@@ -74,6 +74,7 @@ def verify_run(run: Run) -> list[Check]:
 		check_registry,
 		check_coverage,
 		check_reports,
+		check_banking,
 	):
 		try:
 			result = fn(ctx)
@@ -286,3 +287,94 @@ def check_reports(ctx) -> Check:
 	return Check(
 		"standard reports return rows", not empty, ", ".join(f"{k}: {v}" for k, v in results.items())
 	)
+
+
+def check_banking(ctx) -> list[Check]:
+	"""Payments use every mode the pack plans, through the demo's own bank accounts; bank
+	clearance matches a reconciliation done up to the end of the previous month; and the
+	weekly transfers leave only the latest week's receipts in the collection account and
+	the cash box."""
+	from datetime import timedelta
+
+	from erpnext.accounts.report.bank_reconciliation_statement.bank_reconciliation_statement import (
+		execute as bank_reconciliation,
+	)
+	from erpnext.accounts.utils import get_balance_on
+
+	from demo_data.packs import load_pack
+	from demo_data.planner.transactions import planned_mode_names, reconciled_until
+
+	banking = ctx.run.params.get("banking") or {}
+	accounts = banking.get("accounts")
+	if not accounts:
+		return []  # runs from before the two-bank setup
+	payments = frappe.db.sql(
+		"""select pe.name, pe.payment_type, pe.mode_of_payment, pe.bank_account, pe.paid_from,
+			pe.paid_to, pe.reference_no, pe.posting_date, pe.clearance_date
+		from `tabPayment Entry` pe join `tabDemo Data Record` r
+			on r.ref_doctype = 'Payment Entry' and r.ref_name = pe.name and r.run = %s
+		where pe.docstatus = 1""",
+		ctx.run.name,
+		as_dict=True,
+	)
+	pack = load_pack(ctx.run.params.pack)
+	planned = planned_mode_names(pack["banking"])
+	parties = [p for p in payments if p.payment_type != "Internal Transfer"]
+	used = {p.mode_of_payment for p in parties}
+	modes = Check(
+		"payments use every planned mode",
+		planned <= used,
+		", ".join(f"{m}: {sum(p.mode_of_payment == m for p in parties)}" for m in sorted(used))
+		+ (f"; never used: {', '.join(sorted(planned - used))}" if planned - used else ""),
+	)
+
+	ours = {a["bank_account"]: a["ledger"] for a in accounts.values()}
+	reconciled = reconciled_until(getdate(ctx.end))
+	bank = [p for p in parties if p.mode_of_payment != "Cash"]
+	wrong = [
+		p.name
+		for p in bank
+		if p.bank_account not in ours
+		or ours[p.bank_account] not in (p.paid_from, p.paid_to)
+		or not p.reference_no
+		or (p.clearance_date and not (p.posting_date <= p.clearance_date <= reconciled))
+		or (not p.clearance_date and p.posting_date < reconciled - timedelta(days=10))
+	]
+	cleared = sum(1 for p in bank if p.clearance_date)
+	consistent = Check(
+		"bank payments use the demo bank accounts and clear consistently",
+		not wrong and cleared and cleared < len(bank),
+		", ".join(wrong[:5]) or f"{cleared} cleared, {len(bank) - cleared} not yet (reconciled up to {reconciled})",
+	)
+
+	# weekly transfers: what is left is only what came in since the last one
+	transfers = [p for p in payments if p.payment_type == "Internal Transfer"]
+	cash = frappe.get_cached_value("Company", ctx.company, "default_cash_account")
+	left = []
+	for label, ledger in (("collection", accounts["collection"]["ledger"]), ("cash", cash)):
+		last = max((p.posting_date for p in transfers if p.paid_from == ledger), default=None)
+		balance = get_balance_on(account=ledger, date=ctx.end, company=ctx.company)
+		since = frappe.db.sql(
+			"""select coalesce(sum(debit - credit), 0) from `tabGL Entry`
+			where account = %s and is_cancelled = 0 and posting_date >= %s and posting_date <= %s
+			and not (voucher_type = 'Payment Entry' and voucher_no in %s)""",
+			(ledger, last or ctx.start, ctx.end, tuple(p.name for p in transfers) or ("",)),
+		)[0][0]
+		if not last or abs(balance - since) > 1:
+			left.append(f"{label}: balance {balance:,.2f}, received since last transfer {since:,.2f}")
+	swept = Check(
+		"collection account and cash moved to the main account weekly",
+		not left,
+		"; ".join(left) or f"{len(transfers)} transfers",
+	)
+
+	rows = {
+		role: len(bank_reconciliation(frappe._dict(company=ctx.company, account=a["ledger"], report_date=ctx.end))[1])
+		for role, a in accounts.items()
+	}
+	report = Check(
+		"bank reconciliation statements have rows",
+		all(rows.values()),
+		", ".join(f"{role}: {n} rows" for role, n in rows.items()),
+	)
+	return [modes, consistent, swept, report]

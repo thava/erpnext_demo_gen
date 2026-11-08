@@ -131,7 +131,7 @@ def setup_company(run: Run, pack: dict) -> str:
 	if params.get("gst") == "unregistered":
 		ensure_no_itc_templates(run, company, abbr)
 
-	setup_banking(run, company, abbr)
+	setup_banking(run, company, abbr, pack)
 
 	set_defaults(run, company)
 	return company
@@ -165,52 +165,115 @@ def ensure_fiscal_year(run: Run, fy_start: date, company: str):
 	)
 
 
-BANK_ACCOUNT_NAME = "Bank Current Account"
-BANK_MODES = ("Wire Transfer", "Cheque", "Bank Draft", "Credit Card")
+BANK_MODES = ("Wire Transfer", "Cheque", "Bank Draft", "Credit Card")  # ERPNext's own; go to the main account
+ACCOUNT_LABELS = {"main": "Current A/c (demo)", "collection": "Collection A/c (demo)"}
 
 
-def setup_banking(run: Run, company: str, abbr: str):
-	"""A bank ledger account as the company's default bank, and mode-of-payment accounts.
+def _free_name(taken, base: str) -> str:
+	"""base, or base with a letter (B, C, ...) when taken(name) says it is in use."""
+	if not taken(base):
+		return base
+	for letter in "BCDEFGHIJKLMNOPQRSTUVWXYZ":
+		if not taken(f"{base} {letter}"):
+			return f"{base} {letter}"
+	frappe.throw(f"No free name for {base!r}")
 
-	Payment Entry takes the company's default bank account; without one, receipts
-	and payments would all post to Cash.
+
+def setup_banking(run: Run, company: str, abbr: str, pack: dict):
+	"""The demo's own bank accounts (main and collection), their ledgers, and payment modes.
+
+	The accounts are always new, even when the company already banks with the same
+	bank (then they are "... B"), so demo payments never touch the user's accounts;
+	uninstall removes them. An existing Bank master is only the bank's name and is
+	reused, not registered. Account numbers and IFSC codes are made up. UPI and card
+	modes carry the receiving bank ("UPI - ICICI"): ERPNext maps a mode of payment to
+	one account per company.
 	"""
+	from demo_data.planner.transactions import planned_mode_names
+
+	cfg = pack["banking"]
 	parent = frappe.db.get_value(
 		"Account", {"company": company, "account_type": "Bank", "is_group": 1}, order_by="lft"
 	)
-	bank = run.ensure(
-		"setup:account:bank",
-		lambda: frappe.get_doc(
-			{
-				"doctype": "Account",
-				"account_name": BANK_ACCOUNT_NAME,
-				"company": company,
-				"parent_account": parent,
-				"account_type": "Bank",
-				"account_currency": "INR",
-			}
-		).insert(ignore_permissions=True),
-	)
-	# Record every change, so uninstall can undo it in a company that stays (wizard mode).
 	banking = run.params.get("banking") or {"modes_added": []}
+	accounts = {}
+	for role in ("main", "collection"):
+		bank_name, label = cfg[role]["bank"], ACCOUNT_LABELS[role]
+		if not frappe.db.exists("Bank", bank_name):
+			run.ensure(
+				f"setup:bank:{role}",
+				lambda b=bank_name: frappe.get_doc({"doctype": "Bank", "bank_name": b}).insert(ignore_permissions=True),
+			)
+
+		def create_ledger(bank_name=bank_name, label=label):
+			name = _free_name(
+				lambda n: frappe.db.exists("Account", {"company": company, "account_name": n}),
+				f"{bank_name} {label}",
+			)
+			return frappe.get_doc(
+				{
+					"doctype": "Account",
+					"account_name": name,
+					"company": company,
+					"parent_account": parent,
+					"account_type": "Bank",
+					"account_currency": "INR",
+				}
+			).insert(ignore_permissions=True)
+
+		ledger = run.ensure("setup:account:bank" + ("" if role == "main" else f":{role}"), create_ledger)
+
+		def create_bank_account(role=role, bank_name=bank_name, label=label, ledger=ledger):
+			rng = rng_for(run, f"bank-account:{role}")
+			name = _free_name(lambda n: frappe.db.exists("Bank Account", f"{n} - {bank_name}"), label)
+			return frappe.get_doc(
+				{
+					"doctype": "Bank Account",
+					"account_name": name,
+					"bank": bank_name,
+					"account": ledger,
+					"company": company,
+					"is_company_account": 1,
+					# a company the user keeps may have its own default bank account
+					"is_default": int(role == "main" and not run.params.use_wizard_company),
+					"bank_account_no": "".join(str(rng.randint(0, 9)) for _ in range(14)),
+					"branch_code": f"{cfg[role]['ifsc_prefix']}0{rng.randint(0, 999999):06d}",
+				}
+			).insert(ignore_permissions=True)
+
+		bank_account = run.ensure("setup:bank-account" + ("" if role == "main" else f":{role}"), create_bank_account)
+		accounts[role] = {"ledger": ledger, "bank_account": bank_account}
+
+	main, collection = accounts["main"]["ledger"], accounts["collection"]["ledger"]
+	cash = frappe.get_cached_value("Company", company, "default_cash_account")
+	# which ledger each mode posts to in this company
+	targets = {"Cash": cash, **dict.fromkeys(BANK_MODES, main)}
+	for mode in sorted(planned_mode_names(cfg)):
+		targets.setdefault(mode, collection if mode.endswith(f" - {cfg['collection']['short']}") else main)
+		if not frappe.db.exists("Mode of Payment", mode):
+			run.ensure(
+				f"setup:mode-of-payment:{mode}",
+				lambda m=mode: frappe.get_doc(
+					{"doctype": "Mode of Payment", "mode_of_payment": m, "type": "Bank", "enabled": 1}
+				).insert(ignore_permissions=True),
+			)
+
+	# Record every change, so uninstall can undo it in a company that stays (wizard mode).
+	banking.update(accounts=accounts, bank_ledger=main, bank_account=accounts["main"]["bank_account"])
 	previous = frappe.db.get_value("Company", company, "default_bank_account")
 	if not previous:
-		frappe.db.set_value("Company", company, "default_bank_account", bank)
+		frappe.db.set_value("Company", company, "default_bank_account", main)
 		banking.update(set_default_bank=True, previous_default_bank=None)
-	cash = frappe.get_cached_value("Company", company, "default_cash_account")
-	for mode in frappe.get_all("Mode of Payment", filters={"enabled": 1}, fields=["name", "type"]):
-		account = (
-			cash if mode.type == "Cash" else bank if mode.name in BANK_MODES or mode.type == "Bank" else None
-		)
-		if not account:
+	for mode, account in targets.items():
+		if not frappe.db.exists("Mode of Payment", mode):
 			continue
-		doc = frappe.get_doc("Mode of Payment", mode.name)
+		doc = frappe.get_doc("Mode of Payment", mode)
 		if not any(row.company == company for row in doc.accounts):
 			# Company.on_trash deletes these rows, so they need no registry entry
 			doc.append("accounts", {"company": company, "default_account": account})
 			doc.flags.ignore_permissions = True
 			doc.save()
-			banking["modes_added"] = sorted({*banking["modes_added"], mode.name})
+			banking["modes_added"] = sorted({*banking["modes_added"], mode})
 	run.update_params(banking=banking)
 	frappe.db.commit()
 

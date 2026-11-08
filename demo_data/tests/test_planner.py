@@ -201,3 +201,71 @@ class TestReorderFit(UnitTestCase):
 			self.assertLess(d.params["reorder"]["min"], d.params["reorder"]["max"])
 		invoices = sum(1 for d in docs if d.builder == "purchase_invoice")
 		self.assertLess(invoices, 2 * pack["sizes"]["medium"]["purchase_invoices"])
+
+
+class TestPaymentMethods(UnitTestCase):
+	def test_modes_references_and_clearance(self):
+		from demo_data.planner.transactions import reconciled_until
+
+		pack, docs = plan()
+		banking = pack["banking"]
+		payments = [d.params for d in docs if d.builder in ("receive_payment", "pay_supplier", "refund")]
+		from demo_data.planner.transactions import planned_mode_names
+
+		modes = Counter(p["mode"] for p in payments)
+		self.assertEqual(set(modes), planned_mode_names(banking))
+		self.assertEqual(
+			planned_mode_names(banking),
+			{"Cash", "UPI - ICICI", "Card - ICICI", "UPI - HDFC", "Wire Transfer", "Cheque"},
+		)
+		# counter UPI and card go to the collection account, everything else to the main one
+		for p in payments:
+			expected = "cash" if p["mode"] == "Cash" else "collection" if p["mode"].endswith("ICICI") else "main"
+			self.assertEqual(p["account"], expected, p)
+		transfers = [d.params for d in docs if d.builder == "bank_transfer"]
+		self.assertEqual({t["source"] for t in transfers}, {"collection", "cash"})
+		sweep_days = {d.posting_date.weekday() for d in docs if d.builder == "bank_transfer"}
+		self.assertEqual(sweep_days, {banking["sweep_weekday"]})
+		reconciled = reconciled_until(dt.date(2026, 11, 8))
+		for p in payments:
+			if p["mode"] == "Cash":
+				self.assertNotIn("reference", p)
+				continue
+			self.assertTrue(p["reference"])
+			if p["clearance_date"]:
+				self.assertLessEqual(p["clearance_date"], reconciled)
+		self.assertTrue(any(p.get("clearance_date") for p in payments))
+		self.assertTrue(any(p["mode"] != "Cash" and not p["clearance_date"] for p in payments))
+
+	def test_upi_only_for_small_amounts(self):
+		from demo_data.planner.transactions import payment_method
+
+		pack, _ = plan()
+		ctx = PlanContext(pack, "small", 3, "Tamil Nadu", dt.date(2025, 11, 9), dt.date(2026, 11, 8))
+		big = [payment_method(ctx, "customer", 500000, dt.date(2026, 5, 4))["mode"] for _ in range(200)]
+		self.assertNotIn("UPI", big)
+		self.assertTrue(all(m in ("Wire Transfer", "Cheque") for m in big))
+		counter = {payment_method(ctx, "counter", 5000, dt.date(2026, 5, 4))["mode"] for _ in range(200)}
+		self.assertEqual(counter, {"Cash", "UPI - ICICI", "Card - ICICI"})
+
+
+class TestMicro(UnitTestCase):
+	def test_every_seed_covers_the_features(self):
+		from demo_data.planner.transactions import planned_mode_names
+
+		for pack_id in ("furniture_store", "electrical_distributor"):
+			pack = load_pack(pack_id)
+			for seed in range(1, 9):
+				ctx = PlanContext(pack, "micro", seed, "Tamil Nadu", dt.date(2026, 8, 9), dt.date(2026, 11, 8))
+				docs = make_plan(ctx)
+				where = f"{pack_id} seed {seed}"
+				self.assertLess(len(docs), 350, where)
+				builders = Counter(d.builder for d in docs)
+				for builder in ("quotation", "sales_order", "delivery_note", "invoice_from_delivery", "counter_sales_invoice",
+					"sales_return", "cancel", "purchase_order", "purchase_invoice", "pay_supplier", "bank_transfer"):
+					self.assertGreater(builders[builder], 0, f"{where}: {builder}")
+				self.assertTrue(any(d.params.get("draft") for d in docs if d.builder == "counter_sales_invoice"), where)
+				modes = {d.params["mode"] for d in docs if d.builder in ("receive_payment", "pay_supplier")}
+				self.assertEqual(modes, planned_mode_names(pack["banking"]), where)
+				upi = [d for d in docs if d.params.get("mode", "").startswith("UPI")]
+				self.assertTrue(all("fraction" not in d.params or not d.params["fraction"] or d.params["fraction"] < 1 for d in upi))

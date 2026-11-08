@@ -174,6 +174,35 @@ def plan_customers(plan: Plan):
 			if term in TERM_DAYS:
 				params["payment_terms"] = ref(f"M:terms:{term}")
 		plan.add(key, "Customer", "customer", params)
+	ensure_channel_members(plan)
+
+
+def ensure_channel_members(plan: Plan):
+	"""Every channel needs a customer, or its whole flow (e.g. quotations) is missing.
+
+	With few customers (micro) a weighted draw can leave a channel empty; then the
+	busiest channel of the same class gives up its last customer. Larger sizes are
+	untouched, so their plans do not change.
+	"""
+	channels = plan.ctx.pack["channels"]
+	customers = [d for d in plan.docs if d.doctype == "Customer" and d.key != "M:customer:walk-in"]
+	for channel in channels:
+		def members(cid):
+			return [d for d in customers if d.params.get("channel") == cid]
+
+		if members(channel["id"]):
+			continue
+		peers = [c["id"] for c in channels if c["party_class"] == channel["party_class"] and c is not channel]
+		donor = max(peers, key=lambda cid: len(members(cid)), default=None)
+		if not donor or len(members(donor)) < 2:
+			continue
+		moved = members(donor)[-1]
+		moved.params["channel"] = channel["id"]
+		term = max(channel["payment"], key=channel["payment"].get)  # the channel's usual terms
+		if term in TERM_DAYS:
+			moved.params["payment_terms"] = ref(f"M:terms:{term}")
+		else:
+			moved.params.pop("payment_terms", None)
 
 
 # ---------------------------------------------------------------- items

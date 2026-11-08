@@ -18,7 +18,7 @@ import yaml
 
 PACK_DIR = os.path.dirname(__file__)
 SCHEMA_VERSION = 1
-SIZES = ("small", "medium")
+SIZES = ("micro", "small", "medium")
 SIZE_KEYS = ("months", "customers", "suppliers", "items", "sales_invoices", "purchase_invoices")
 FLOW_STEPS = ("quotation", "sales_order", "delivery_note", "sales_invoice", "payment_entry")
 PAYMENT_TERMS = ("immediate", "net_15", "net_30", "net_45", "net_60")
@@ -132,6 +132,7 @@ def validate_pack(pack: dict) -> list[str]:
 	_validate_company(e, pack.get("company"))
 	_validate_parties(e, pack.get("parties"))
 	_validate_behavior(e, pack.get("behavior"))
+	_validate_banking(e, pack.get("banking"))
 	_validate_sizes(e, pack.get("sizes"))
 	if not pack.get("abstract"):
 		_validate_channels(e, pack.get("channels"))
@@ -319,6 +320,47 @@ def _validate_behavior(e, behavior):
 		_check(e, values and _close(sum(values.values()), 1), f"behavior.{key}", "shares must add up to 1")
 	for key, value in (behavior.get("rates") or {}).items():
 		_check(e, _is_num(value, 0) and value < 0.5, f"behavior.rates.{key}", "must be between 0 and 0.5")
+
+
+PAYMENT_MODES = ("Cash", "UPI", "Wire Transfer", "Cheque", "Card")
+PAYERS = ("counter", "customer", "supplier")
+
+
+def _validate_banking(e, banking):
+	if not _check(e, isinstance(banking, dict), "banking", "is required"):
+		return
+	for role in ("main", "collection"):
+		bank = banking.get(role) or {}
+		path = f"banking.{role}"
+		if not _check(e, isinstance(bank, dict) and bank, path, "is required"):
+			continue
+		for key in ("bank", "short"):
+			_check(e, _is_str(bank.get(key)), f"{path}.{key}", "is required")
+		prefix = bank.get("ifsc_prefix") or ""
+		_check(e, len(prefix) == 4 and prefix.isalpha() and prefix.isupper(), f"{path}.ifsc_prefix", "must be 4 capital letters")
+	_check(e, _is_int(banking.get("sweep_weekday"), 0) and banking["sweep_weekday"] <= 6, "banking.sweep_weekday", "must be 0 (Monday) to 6")
+	for key in ("upi_limit", "rtgs_from"):
+		_check(e, _is_num(banking.get(key), minimum=1), f"banking.{key}", "must be a positive number")
+	modes = banking.get("modes") or {}
+	used = set()
+	for payer in PAYERS:
+		shares = modes.get(payer) or {}
+		path = f"banking.modes.{payer}"
+		if not _check(e, shares and _close(sum(shares.values()), 1), path, "shares must add up to 1"):
+			continue
+		for mode in shares:
+			_check(e, mode in PAYMENT_MODES, path, f"unknown mode {mode!r}; use {', '.join(PAYMENT_MODES)}")
+			_check(e, mode != "Cash" or payer == "counter", path, "Cash is only for counter payments")
+		used |= set(shares)
+	days = banking.get("clearing_days") or {}
+	for mode in sorted(used - {"Cash"}):
+		span = days.get(mode)
+		_check(
+			e,
+			isinstance(span, list) and len(span) == 2 and all(_is_int(v) and v >= 0 for v in span) and span[0] <= span[1],
+			f"banking.clearing_days.{mode}",
+			"needs [min, max] days",
+		)
 
 
 def _validate_sizes(e, sizes):

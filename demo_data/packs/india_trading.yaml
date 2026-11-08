@@ -30,6 +30,27 @@ behavior:
   payment_outcomes: {on_time: 0.70, late: 0.20, open_overdue: 0.10}
   rates: {returns: 0.02, cancelled: 0.01, left_in_draft: 0.02}
 
+banking:
+  # The demo always creates its own bank accounts (and ledgers), even when the
+  # company already has accounts at these banks; an existing Bank master is only
+  # reused as the bank's name. Account numbers and IFSC codes are made up.
+  main: {bank: HDFC Bank, short: HDFC, ifsc_prefix: HDFC}        # operating account at the lender bank
+  collection: {bank: ICICI Bank, short: ICICI, ifsc_prefix: ICIC}  # counter UPI QR and card terminal settle here
+  sweep_weekday: 0            # every Monday the collection account and the cash are moved to the main account
+  upi_limit: 100000           # UPI above this falls back to a bank transfer (NEFT/RTGS)
+  rtgs_from: 200000           # bank transfers from this amount go by RTGS, below by NEFT
+  # Payment methods by who pays: counter = paid on the spot at the counter (UPI and
+  # card into the collection account), customer = credit customers paying later,
+  # supplier = our payments. All but counter UPI and card use the main account.
+  modes:
+    counter:  {Cash: 0.35, UPI: 0.45, Card: 0.20}
+    customer: {Wire Transfer: 0.55, Cheque: 0.25, UPI: 0.20}
+    supplier: {Wire Transfer: 0.80, Cheque: 0.15, UPI: 0.05}
+  # Days until the bank clears a payment ([min, max]). The books are reconciled up
+  # to the end of the previous month, so later payments show as uncleared.
+  clearing_days: {UPI: [0, 0], Wire Transfer: [0, 1], Card: [1, 2], Cheque: [2, 5]}
+
 sizes:
+  micro:  {months: 3,  customers: 6,   suppliers: 3,  items: 12,  sales_invoices: 35,   purchase_invoices: 12}   # quick tests, about 1 minute
   small:  {months: 12, customers: 15,  suppliers: 8,  items: 40,  sales_invoices: 150,  purchase_invoices: 60}
   medium: {months: 24, customers: 150, suppliers: 30, items: 250, sales_invoices: 4000, purchase_invoices: 900}

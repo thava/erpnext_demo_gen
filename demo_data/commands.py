@@ -1,7 +1,7 @@
 """bench --site <site> demo-data ...
 
     demo-data list-packs
-    demo-data install --pack furniture_store [--size small] [--seed N] [--end-date YYYY-MM-DD]
+    demo-data install --pack furniture_store [--size micro|small|medium] [--seed N] [--end-date YYYY-MM-DD]
                       [--home-state TN] [--demo-company-name NAME] [--use-wizard-company]
                       [--no-gst | --fictitious-gstin] [--force]
     demo-data status
@@ -14,6 +14,8 @@ Thin wrappers over demo_data.service (M-13).
 
 import click
 from frappe.commands import get_site, pass_context
+
+from demo_data.packs import SIZES
 
 
 def _connect(context):
@@ -63,7 +65,13 @@ def list_packs():
 
 @demo_data.command("install")
 @click.option("--pack", required=True, help="Pack id (see list-packs)")
-@click.option("--size", default="small", show_default=True, type=click.Choice(["small", "medium"]))
+@click.option(
+	"--size",
+	default="small",
+	show_default=True,
+	type=click.Choice(SIZES),
+	help="micro: about 250 documents, 1 min, for quick tests; small: about 1,000, 4 min; medium: about 18,000, 1.5 h",
+)
 @click.option("--seed", default=1, show_default=True, type=int, help="Same seed, same data")
 @click.option("--end-date", help="Last day of generated data (default: today)")
 @click.option("--home-state", help="State of the demo company: name, code (TN, KA) or GST state code (33). Default: the pack's, usually TN")

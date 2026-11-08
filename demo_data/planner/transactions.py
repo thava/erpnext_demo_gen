@@ -27,6 +27,7 @@ from demo_data.planner.masters import TERM_DAYS, weighted
 # order of stages within one day
 STAGE = {
 	"funding": 0,
+	"bank_transfer": 5,  # before the day's other entries, so it moves the balance up to the day before
 	"material_request": 10,
 	"purchase_order": 20,
 	"purchase_receipt": 30,
@@ -60,6 +61,7 @@ class Event:
 	order: int | None = None  # creation order; set by Timeline.add
 	after: int = 0  # 1 = immediately after the event with the same (date, stage, order), e.g. a cancel
 	bank: float = 0.0  # effect on the bank balance, for the cash simulation
+	amount: float = 0.0  # payments: the amount, for choosing a payment method
 	consumes: list = field(default_factory=list)  # [(item_key, qty)] leaving stock on this date
 
 	def sort_key(self):
@@ -159,6 +161,8 @@ def plan_transactions(plan: Plan):
 	plan_sales(ctx, tl, items, customers, terms_days)
 	fit_reorder_levels(plan, tl, items)
 	plan_stock_and_purchases(ctx, tl, items)
+	ensure_payment_modes(ctx, tl)
+	plan_bank_transfers(ctx, tl)
 	plan_funding(ctx, tl)
 	emit(plan, tl)
 
@@ -291,7 +295,7 @@ def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, 
 		)
 		if draft:
 			continue
-		paid_now = plan_customer_payment(ctx, tl, rng, key, s["date"], amount, s["days"], cash=not s["days"])
+		paid_now = plan_customer_payment(ctx, tl, rng, key, s["date"], amount, s["days"])
 		if s.get("return"):
 			k, _ = s["lines"][0]
 			rdate = min(s["date"] + timedelta(days=rng.randint(3, 20)), ctx.end_date)
@@ -314,7 +318,8 @@ def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, 
 						tl.next_key("PE"),
 						"Payment Entry",
 						"refund",
-						{"credit_note": ref(rkey), "cash": True},
+						# refunded the way it was paid
+						{"credit_note": ref(rkey), **refund_method(ctx, paid_now, rdate)},
 					)
 				)
 
@@ -435,17 +440,212 @@ def plan_delivery(ctx, tl, rng, so_key, dn_date, lines, fraction, items, days):
 				{"delivery_note": ref(dn_key), "credit_days": days},
 			)
 		)
-	plan_customer_payment(ctx, tl, rng, si_key, dn_date, amount_of(lines, items, gst=ctx.sales_gst), days, cash=False)
+	plan_customer_payment(ctx, tl, rng, si_key, dn_date, amount_of(lines, items, gst=ctx.sales_gst), days)
 
 
-def plan_customer_payment(ctx, tl, rng, si_key, si_date, amount, days, cash) -> bool:
-	"""Schedule receipts for an invoice. Returns True when paid on the spot."""
+def reconciled_until(end: date) -> date:
+	"""The books are reconciled with the bank up to the end of the previous month."""
+	return end.replace(day=1) - timedelta(days=1)
+
+
+COLLECTED_AT_COUNTER = ("UPI", "Card")  # the counter's UPI QR and card terminal pay into the collection account
+
+
+def mode_name(banking: dict, mode: str, account: str) -> str:
+	"""The Mode of Payment name: UPI and card carry the receiving bank ("UPI - ICICI"),
+	since ERPNext maps a mode to one account per company; others are ERPNext's own."""
+	if mode in COLLECTED_AT_COUNTER:
+		return f"{mode} - {banking[account]['short']}"
+	return mode
+
+
+def planned_mode_names(banking: dict) -> set[str]:
+	return {
+		mode_name(banking, mode, account_for(payer, mode))
+		for payer, shares in banking["modes"].items()
+		for mode, share in shares.items()
+		if share
+	}
+
+
+def account_for(payer: str, mode: str) -> str:
+	return "collection" if payer == "counter" and mode in COLLECTED_AT_COUNTER else "main"
+
+
+def payment_method(ctx, payer: str, amount: float, when: date, mode: str | None = None) -> dict:
+	"""How a payment is made: mode, bank account, bank reference and the date the bank clears it.
+
+	The mode is drawn from the pack's mix for the payer unless given. Uses its own
+	random stream, so payment methods never shift the rest of the plan.
+	clearance_date stays empty for payments after the last bank reconciliation.
+	"""
+	rng = ctx.__dict__.setdefault("_payment_rng", ctx.rng("payment-methods"))
+	banking = ctx.pack["banking"]
+	if mode is None:
+		mode = weighted(rng, banking["modes"][payer])
+		if mode == "UPI" and amount > banking["upi_limit"]:
+			mode = "Wire Transfer"
+	if mode == "Cash":
+		return {"mode": "Cash", "account": "cash"}
+	account = account_for(payer, mode)
+	bank = banking[account]
+	if mode == "Cheque":
+		reference = f"{rng.randint(100000, 999999)}"
+	elif mode == "Wire Transfer":  # NEFT/RTGS UTR: bank code, N or R, date, serial
+		kind = "R" if amount >= banking["rtgs_from"] else "N"
+		reference = f"{bank['ifsc_prefix']}{kind}{when:%y%m%d}{rng.randint(10**7, 10**8 - 1)}"
+	else:  # UPI and card: 12-digit RRN
+		reference = f"{when:%y}{rng.randint(10**9, 10**10 - 1)}"
+	low, high = banking["clearing_days"][mode]
+	clears = when + timedelta(days=rng.randint(low, high))
+	return {
+		"mode": mode_name(banking, mode, account),
+		"account": account,
+		"reference": reference,
+		"clearance_date": clears if clears <= reconciled_until(ctx.end_date) else None,
+	}
+
+
+def refund_method(ctx, paid: dict, when: date) -> dict:
+	"""A counter refund goes back the way the sale was paid, with its own reference."""
+	if paid["account"] == "cash":
+		return {"mode": "Cash", "account": "cash"}
+	mode = paid["mode"].split(" - ")[0]  # "UPI - ICICI" -> "UPI"
+	return payment_method(ctx, "counter", 0, when, mode)
+
+
+def ensure_payment_modes(ctx, tl: Timeline):
+	"""Every planned payment mode is used at least once, so each shows up in the demo
+	even at micro size: when one is missing, the smallest suitable payment of a payer
+	that uses it switches to it. Counter payments that are later refunded keep their
+	mode (the refund goes back the same way). Larger sizes are rarely touched.
+	"""
+	banking = ctx.pack["banking"]
+	refunded = {e.params["against"]["$ref"] for e in tl.events if e.builder == "sales_return"}
+
+	def payer(e):
+		if e.builder == "pay_supplier":
+			return "supplier"
+		return "counter" if e.params.get("account") in ("collection", "cash") else "customer"
+
+	payments = [e for e in tl.events if e.builder in ("receive_payment", "pay_supplier")]
+	used = {e.params["mode"] for e in payments}
+	for who, shares in banking["modes"].items():
+		for mode, share in shares.items():
+			name = mode_name(banking, mode, account_for(who, mode))
+			if not share or name in used:
+				continue
+			fits = [
+				e
+				for e in payments
+				if payer(e) == who
+				and e.params["invoice"]["$ref"] not in refunded
+				and (mode != "UPI" or e.amount <= banking["upi_limit"])
+				and sum(p.params["mode"] == e.params["mode"] for p in payments) > 1  # keep the old mode in use
+			]
+			if not fits and mode == "UPI" and who == "customer":
+				split_by_upi(ctx, tl, payments, refunded)
+				used.add(name)
+				continue
+			if not fits:
+				continue
+			e = min(fits, key=lambda e: (e.amount, e.key))
+			keep = {k: e.params[k] for k in ("invoice", "fraction") if k in e.params}
+			for k in ("mode", "account", "reference", "clearance_date"):
+				e.params.pop(k, None)
+			e.params.update(keep | payment_method(ctx, who, e.amount, e.date, mode))
+			if e.builder == "receive_payment":
+				e.bank = 0 if e.params["account"] == "cash" else e.amount
+			used.add(name)
+
+
+def split_by_upi(ctx, tl: Timeline, payments: list, refunded: set):
+	"""Every credit payment is above the UPI limit: the smallest one is split, part paid
+	by UPI first on the same day (under the limit), the rest the usual way."""
+	limit = ctx.pack["banking"]["upi_limit"]
+	whole = [
+		e
+		for e in payments
+		if e.builder == "receive_payment"
+		and e.params.get("account") == "main"
+		and e.params.get("fraction") is None
+		and e.params["invoice"]["$ref"] not in refunded
+	]
+	if not whole:
+		return
+	e = min(whole, key=lambda e: (e.amount, e.key))
+	part = round(min(0.9 * limit, 0.5 * e.amount), -3)
+	fraction = round(part / e.amount, 4)
+	tl.add(
+		Event(
+			e.date,
+			"customer_payment",
+			tl.next_key("PE"),
+			"Payment Entry",
+			"receive_payment",
+			{"invoice": e.params["invoice"], "fraction": fraction, **payment_method(ctx, "customer", part, e.date, "UPI")},
+			order=e.order,
+			after=-1,  # just before the payment of the rest
+			bank=part,
+			amount=part,
+		)
+	)
+	e.amount -= part
+	e.bank -= part
+
+
+def plan_bank_transfers(ctx, tl: Timeline):
+	"""Every week, on the sweep weekday, move what the collection account and the cash
+	box received since the last transfer into the main account (Internal Transfer).
+
+	Only weeks with such receipts get a transfer; the amount is the account's balance
+	that morning, which the builder reads from the ledger.
+	"""
+	banking = ctx.pack["banking"]
+	weekday = banking["sweep_weekday"]
+	# source -> transfer date -> the receipts it moves
+	received = defaultdict(lambda: defaultdict(list))
+	for e in tl.events:
+		if e.builder == "receive_payment" and e.params.get("account") in ("collection", "cash"):
+			days_ahead = (weekday - e.date.weekday() - 1) % 7 + 1  # the next sweep day, strictly after
+			received[e.params["account"]][e.date + timedelta(days=days_ahead)].append(e.key)
+	rng = ctx.rng("bank-transfers")
+	reconciled = reconciled_until(ctx.end_date)
+	for source in ("collection", "cash"):
+		for when, receipts in sorted((d, r) for d, r in received[source].items() if d <= ctx.end_date):
+			if source == "collection":
+				bank = banking["collection"]
+				reference = f"{bank['ifsc_prefix']}N{when:%y%m%d}{rng.randint(10**7, 10**8 - 1)}"
+			else:
+				reference = f"DEP{when:%y%m%d}{rng.randint(100, 999)}"  # cash deposit slip
+			tl.add(
+				Event(
+					when,
+					"bank_transfer",
+					tl.next_key("XFER"),
+					"Payment Entry",
+					"bank_transfer",
+					{
+						"source": source,
+						# depends on them: if one failed, the transfer waits for a resume
+						"receipts": [ref(k) for k in receipts],
+						"reference": reference,
+						"clearance_date": when if when <= reconciled else None,
+					},
+				)
+			)
+
+
+def plan_customer_payment(ctx, tl, rng, si_key, si_date, amount, days):
+	"""Schedule receipts for an invoice. Returns the payment method when paid on the
+	spot (at the counter), else None."""
 	end = ctx.end_date
 
-	def receipt(when, fraction=None, last=True):
+	def receipt(when, fraction=None, last=True, payer="customer"):
 		if when > end:
-			return
+			return None
 		share = fraction or 1.0
+		method = payment_method(ctx, payer, amount * share, when)
 		tl.add(
 			Event(
 				when,
@@ -453,14 +653,15 @@ def plan_customer_payment(ctx, tl, rng, si_key, si_date, amount, days, cash) -> 
 				tl.next_key("PE"),
 				"Payment Entry",
 				"receive_payment",
-				{"invoice": ref(si_key), "fraction": None if last else fraction, "cash": cash},
-				bank=0 if cash else amount * share,
+				{"invoice": ref(si_key), "fraction": None if last else fraction, **method},
+				bank=0 if method["account"] == "cash" else amount * share,
+				amount=amount * share,
 			)
 		)
+		return method
 
 	if days == 0:
-		receipt(si_date)
-		return True
+		return receipt(si_date, payer="counter")
 	outcome = weighted(rng, ctx.pack["behavior"]["payment_outcomes"])
 	due = si_date + timedelta(days=days)
 	if outcome == "on_time":
@@ -475,7 +676,7 @@ def plan_customer_payment(ctx, tl, rng, si_key, si_date, amount, days, cash) -> 
 		else:
 			receipt(due + timedelta(days=rng.randint(5, 60)))
 	# open_overdue: never paid
-	return False
+	return None
 
 
 # ---------------------------------------------------------------- stock and purchases
@@ -571,8 +772,9 @@ def plan_stock_and_purchases(ctx, tl: Timeline, items: dict[str, ItemInfo]):
 					tl.next_key("PE"),
 					"Payment Entry",
 					"pay_supplier",
-					{"invoice": ref(pi_key)},
+					{"invoice": ref(pi_key), **payment_method(ctx, "supplier", total, pay)},
 					bank=-total,
+					amount=total,
 				)
 			)
 		if track:

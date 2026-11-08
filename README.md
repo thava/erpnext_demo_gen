@@ -17,7 +17,7 @@ Redis queue (ERPNext's Transaction Deletion Record needs it).
 
 ```bash
 bench --site <site> demo-data list-packs
-bench --site <site> demo-data install --pack furniture_store [--size small|medium] [--seed N] \
+bench --site <site> demo-data install --pack furniture_store [--size micro|small|medium] [--seed N] \
       [--end-date YYYY-MM-DD] [--home-state TN] [--demo-company-name NAME] [--use-wizard-company]
       [--no-gst | --fictitious-gstin] [--force]
 bench --site <site> demo-data status                          # what is installed now
@@ -109,21 +109,91 @@ Other rules the demo follows:
 - `verify` checks that sales carry no GST and that purchases from registered
   suppliers carry GST rows marked "Valuation and Total".
 
+## Banks and payments
+
+The demo banks like a typical Indian SME, with two accounts of its own. It never
+uses an account you already have:
+
+| Bank Account | Ledger | Used for |
+| --- | --- | --- |
+| Current A/c (demo) - HDFC Bank | HDFC Bank Current A/c (demo) | Main account at the lender bank: supplier payments, NEFT/RTGS, cheque and UPI receipts from credit customers, the weekly transfers |
+| Collection A/c (demo) - ICICI Bank | ICICI Bank Collection A/c (demo) | The showroom counter's UPI QR code and card terminal settle here |
+
+If a name is taken, it becomes "... B", "... C", and so on. Account numbers and IFSC
+codes are made up. Uninstall removes the accounts and ledgers. The *Bank* masters
+("HDFC Bank", "ICICI Bank") are only the banks' names: existing ones are reused and
+kept.
+
+**Weekly transfers.** Every Monday, the collection account's balance is moved to the
+main account (an Internal Transfer by NEFT), and the cash taken at the counter is
+deposited into the main account. Only weeks with such receipts get a transfer. This
+is a common pattern, and it matches the RBI rules for current accounts: a business
+with bank loans of Rs 5 crore or more may keep only a *collection* account at a
+bank that does not lend to it, and that account must pass its money on to the
+lending bank promptly.
+
+**Payment modes carry the receiving bank.** ERPNext links a *Mode of Payment* to one
+account per company, and point-of-sale entries cannot pick another, so a business
+receiving UPI or cards into more than one account names the modes after the
+account: "UPI - ICICI" (counter QR), "Card - ICICI" (counter terminal), "UPI - HDFC"
+(credit customers paying the invoice's bank details). Card networks (Visa,
+Mastercard, RuPay) are not separate modes; the receiving bank is what matters. Cash,
+Cheque and Wire Transfer are ERPNext's own modes and go to the main account. Modes
+the site lacks are created, and removed on uninstall.
+
+UPI receipts are sometimes entered as Wire Transfer with the UPI reference number;
+separate modes keep them apart in reports. The UPI reference (the 12-digit RRN on
+bank statements) goes in Reference No, so bank statement import and reconciliation
+can match it. To collect UPI payments automatically (QR codes, payment links),
+payment-gateway apps for Razorpay, PhonePe, PayU and others create these payment
+entries for you; they are separate apps, not part of ERPNext or this demo.
+
+How customers and suppliers pay (the mix is set per pack under `banking.modes`):
+
+| Who | Methods |
+| --- | --- |
+| Showroom customers paying at the counter | Cash, UPI - ICICI, Card - ICICI |
+| Credit customers (dealers, projects) | NEFT/RTGS, cheque, UPI - HDFC |
+| The demo company paying suppliers | NEFT/RTGS, a few cheques and UPI - HDFC |
+
+UPI is used up to Rs 1 lakh, for business customers too; larger payments go by
+NEFT, or RTGS from Rs 2 lakh. Each bank payment carries a reference number like the
+real one: a 12-digit RRN for UPI and cards, a NEFT or RTGS UTR, or a 6-digit cheque
+number.
+
+**Bank reconciliation.** The books are reconciled with both banks up to the end of
+the month before the demo's end date: those payments have a clearance date (UPI the
+same day, NEFT within a day, cards in one or two days, cheques in two to five).
+Later payments are not cleared yet, so the *Bank Reconciliation Statement* and the
+*Bank Reconciliation Tool* show realistic open items for each account.
+
+Not modelled yet: card fees (MDR) and a card-settlement clearing account; card
+payments reach the collection account directly, one or two days later.
+
 ## Sizes
 
-Sizes, measured on a laptop at about 0.22 s per document:
+Measured on a laptop (MariaDB in Docker); each submitted transaction takes about
+0.3 to 0.4 s in ERPNext itself, so time grows with the number of documents:
 
-| Pack | Small (12 months) | Medium (24 months) |
-| --- | --- | --- |
-| furniture_store | about 900 documents, 4 minutes | about 16,000 documents, about an hour |
-| electrical_distributor | about 1,250 documents, 5 minutes | about 20,000 documents, about 75 minutes |
+| Pack | Micro (3 months) | Small (12 months) | Medium (24 months) |
+| --- | --- | --- | --- |
+| furniture_store | about 230 documents, 1 minute | about 1,000 documents, 4 minutes | about 18,000 documents, 1.5 hours |
+| electrical_distributor | about 280 documents, 1.2 minutes | about 1,300 documents, 5.5 minutes | about 20,000 documents, about 1.5 hours (estimate) |
+
+**Micro** is for quick tests and reproducing bugs, not for demos: few customers and
+items, one quarter of data. It still covers every feature the demo has (quotations
+won and lost, orders, deliveries, invoices paid, overdue, returned, cancelled and
+left in draft, purchases, every payment mode, weekly bank transfers and bank
+reconciliation): the planner checks this for every size and adjusts a few documents
+when a small run would miss something.
 
 ## Development
 
 ```bash
 bench --site demo-data.localhost run-tests --app demo_data       # unit tests (planner, packs, generators)
 bench --site demo-data.localhost execute demo_data.tests.smoke.run \
-      --kwargs '{"pack": "furniture_store", "seed": 11}'          # install, verify, uninstall, compare counts
+      --kwargs '{"pack": "furniture_store", "seed": 11}'          # micro install, verify, uninstall, compare counts
+# add "size": "small" (or "medium") to test a larger size
 ```
 
 `dev/phase0_spike.py` is the Phase 0 runtime spike (see section 6.2 of the design).

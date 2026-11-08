@@ -38,6 +38,10 @@ class WriteContext:
 	tax_templates: dict = field(default_factory=dict)  # gst rate -> Item Tax Template
 	gst_registered: bool = True  # False with --no-gst: no GST on sales, purchase GST is a cost
 	home_state_code: str = ""
+	bank_account: str = ""  # the demo's main Bank Account and its ledger (setup_banking)
+	bank_ledger: str = ""
+	cash_account: str = ""
+	accounts: dict = field(default_factory=dict)  # role (main, collection) -> {ledger, bank_account}
 
 	@classmethod
 	def for_run(cls, run: Run, pack: dict, start_date: date) -> "WriteContext":
@@ -68,6 +72,11 @@ class WriteContext:
 			tax_templates=templates,
 			gst_registered=run.params.get("gst", "registered") == "registered",
 			home_state_code=state_code(run.params.home_state),
+			bank_account=(run.params.get("banking") or {}).get("bank_account", ""),
+			bank_ledger=(run.params.get("banking") or {}).get("bank_ledger")
+			or frappe.get_cached_value("Company", company, "default_bank_account"),
+			cash_account=frappe.get_cached_value("Company", company, "default_cash_account"),
+			accounts=(run.params.get("banking") or {}).get("accounts") or {},
 		)
 
 	def item_tax_template(self, rate) -> str:
@@ -88,7 +97,7 @@ def resolve(value, done: dict):
 	return value
 
 
-RETRIES = 4  # waits 2, 4 and 8 s between attempts
+RETRIES = 6  # waits 2, 4, 8, 16 and 32 s between attempts (about a minute in all)
 
 
 def is_transient(error: Exception) -> bool:

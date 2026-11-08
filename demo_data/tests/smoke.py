@@ -32,6 +32,10 @@ WATCHED = (
 	"Sales Taxes and Charges Template",
 	"Sales Taxes and Charges",
 	"Purchase Taxes and Charges Template",
+	"Bank",
+	"Bank Account",
+	"Mode of Payment",
+	"Mode of Payment Account",
 	"Purchase Taxes and Charges",
 	"Item Tax Template",
 	"Item Tax Template Detail",
@@ -65,7 +69,7 @@ def snapshot() -> dict:
 
 def run(
 	pack: str = "furniture_store",
-	size: str = "small",
+	size: str = "micro",
 	seed: int = 11,
 	end_date: str | None = None,
 	use_wizard_company: bool = False,
