@@ -275,7 +275,7 @@ def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, 
 	for s in sales:
 		key = tl.next_key("SI")
 		lines = [{"item": ref(k), "qty": q, "rate": items[k].sell} for k, q in s["lines"]]
-		amount = amount_of(s["lines"], items, gst=ctx.sales_gst)
+		amount = amount_of(s["lines"], items, gst=False)  # shelf prices include GST
 		draft = bool(s.get("draft"))
 		tl.add(
 			Event(
@@ -320,6 +320,7 @@ def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, 
 						"refund",
 						# refunded the way it was paid
 						{"credit_note": ref(rkey), **refund_method(ctx, paid_now, rdate)},
+						amount=amount_of([(k, 1)], items, gst=False),  # one unit at the shelf price
 					)
 				)
 
@@ -596,44 +597,59 @@ def split_by_upi(ctx, tl: Timeline, payments: list, refunded: set):
 
 def plan_bank_transfers(ctx, tl: Timeline):
 	"""Every week, on the sweep weekday, move what the collection account and the cash
-	box received since the last transfer into the main account (Internal Transfer).
+	box hold into the main account (Internal Transfer); the builder reads the amount
+	from the ledger that morning.
 
-	Only weeks with such receipts get a transfer; the amount is the account's balance
-	that morning, which the builder reads from the ledger.
+	A running balance per account decides whether there is anything to move: receipts
+	add, counter refunds (card and UPI reversals come out of the collection account)
+	subtract, and each transfer empties it. Amounts are exact (counter prices include
+	GST), so a planned transfer never finds the account empty.
 	"""
 	banking = ctx.pack["banking"]
 	weekday = banking["sweep_weekday"]
-	# source -> transfer date -> the receipts it moves
-	received = defaultdict(lambda: defaultdict(list))
-	for e in tl.events:
-		if e.builder == "receive_payment" and e.params.get("account") in ("collection", "cash"):
-			days_ahead = (weekday - e.date.weekday() - 1) % 7 + 1  # the next sweep day, strictly after
-			received[e.params["account"]][e.date + timedelta(days=days_ahead)].append(e.key)
 	rng = ctx.rng("bank-transfers")
 	reconciled = reconciled_until(ctx.end_date)
 	for source in ("collection", "cash"):
-		for when, receipts in sorted((d, r) for d, r in received[source].items() if d <= ctx.end_date):
-			if source == "collection":
-				bank = banking["collection"]
-				reference = f"{bank['ifsc_prefix']}N{when:%y%m%d}{rng.randint(10**7, 10**8 - 1)}"
-			else:
-				reference = f"DEP{when:%y%m%d}{rng.randint(100, 999)}"  # cash deposit slip
-			tl.add(
-				Event(
-					when,
-					"bank_transfer",
-					tl.next_key("XFER"),
-					"Payment Entry",
-					"bank_transfer",
-					{
-						"source": source,
-						# depends on them: if one failed, the transfer waits for a resume
-						"receipts": [ref(k) for k in receipts],
-						"reference": reference,
-						"clearance_date": when if when <= reconciled else None,
-					},
+		flows = sorted(
+			(e.date, e.order, e.amount if e.builder == "receive_payment" else -e.amount, e.key, e.builder)
+			for e in tl.events
+			if e.builder in ("receive_payment", "refund") and e.params.get("account") == source
+		)
+		if not flows:
+			continue
+		first = flows[0][0]
+		when = first + timedelta(days=(weekday - first.weekday() - 1) % 7 + 1)  # first sweep day after it
+		balance, receipts, i = 0.0, [], 0
+		while when <= ctx.end_date:
+			while i < len(flows) and flows[i][0] < when:
+				_, _, delta, key, builder = flows[i]
+				balance += delta
+				if builder == "receive_payment":
+					receipts.append(key)
+				i += 1
+			if balance > 1 and receipts:
+				if source == "collection":
+					reference = f"{banking['collection']['ifsc_prefix']}N{when:%y%m%d}{rng.randint(10**7, 10**8 - 1)}"
+				else:
+					reference = f"DEP{when:%y%m%d}{rng.randint(100, 999)}"  # cash deposit slip
+				tl.add(
+					Event(
+						when,
+						"bank_transfer",
+						tl.next_key("XFER"),
+						"Payment Entry",
+						"bank_transfer",
+						{
+							"source": source,
+							# depends on them: if one failed, the transfer waits for a resume
+							"receipts": [ref(k) for k in receipts],
+							"reference": reference,
+							"clearance_date": when if when <= reconciled else None,
+						},
+					)
 				)
-			)
+				balance, receipts = 0.0, []
+			when += timedelta(days=7)
 
 
 def plan_customer_payment(ctx, tl, rng, si_key, si_date, amount, days):

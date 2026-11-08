@@ -26,3 +26,12 @@ def clear_demo_data():
 		uninstall(run.name, log=lambda msg: None)
 	except DemoDataError as e:
 		frappe.throw(str(e), title=_("Could Not Delete Demo Data"))
+	# Uninstall keeps records that other data still refers to; say so instead of "cleared".
+	status, error = frappe.db.get_value("Demo Data Run", run.name, ["status", "error"])
+	if status != "Uninstalled":
+		frappe.throw(
+			_("Demo data was removed except what other data still refers to:")
+			+ f"<br><pre>{frappe.utils.escape_html(error or '')}</pre>"
+			+ _("Remove those references and click Delete Demo Data again."),
+			title=_("Demo Data Not Fully Deleted"),
+		)

@@ -13,6 +13,8 @@ Order, as established by the Phase 0 spike (section 6.2):
    The company comes last because it was created first.
 """
 
+from collections import defaultdict
+
 import frappe
 from frappe.exceptions import LinkExistsError
 
@@ -71,6 +73,10 @@ def uninstall_run(run: Run, log=print, registry_only: bool = False):
 		run.set_status(
 			"Failed", error=f"Kept {len(skipped)} record(s):\n" + "\n".join(skipped), totals=True
 		)
+		if own_company and company and frappe.db.exists("Company", company):
+			# keep the desk's "Delete Demo Data" button available for another try
+			frappe.db.set_single_value("Global Defaults", "demo_company", company)
+			frappe.db.commit()
 		log(f"{len(skipped)} record(s) were kept because other data links to them:")
 		for line in skipped:
 			log(f"  {line}")
@@ -145,6 +151,7 @@ def delete_registered(run: Run, log=print) -> list[str]:
 				if doctype == "Company":
 					delete_company_addresses(name)
 					delete_template_rows(name)
+					release_company_links(name, log)
 				frappe.delete_doc(doctype, name, ignore_permissions=True)
 				run.set_record_state(rec.name, "Deleted")
 				frappe.db.commit()
@@ -167,6 +174,38 @@ def delete_registered(run: Run, log=print) -> list[str]:
 			run.set_record_state(record_name, "Deleted")
 	frappe.db.commit()
 	return kept
+
+
+def release_company_links(company: str, log=print):
+	"""Before deleting a demo company: remove per-company rows other records keep for it.
+
+	Apps undo what they add for a company in their Company on_trash handlers, which
+	frappe.delete_doc runs before its link check (ERPNext: accounts, warehouses...;
+	Healthcare: service units; HRMS: its company_data_to_be_ignored records). One gap:
+	HRMS adds an Expense Claim Account row to every Expense Claim Type when a company
+	is saved and does not remove it (F-40). Such child-table rows mean nothing without
+	the company, so every child row that links to it is removed. Whole documents are
+	left to their apps; anything still linked keeps the company, and it is reported.
+	Only called for a company the demo created (tier B).
+	"""
+	fields = frappe.db.sql(
+		"""select parent, fieldname from tabDocField where fieldtype = 'Link' and options = 'Company'
+		union select dt, fieldname from `tabCustom Field` where fieldtype = 'Link' and options = 'Company'"""
+	)
+	removed = defaultdict(int)
+	for doctype, field in fields:
+		if not frappe.db.table_exists(doctype):
+			continue
+		meta = frappe.get_meta(doctype)
+		if not meta.istable or not meta.has_field(field):
+			continue
+		for parenttype, n in frappe.db.sql(
+			f"select parenttype, count(*) from `tab{doctype}` where `{field}` = %s group by parenttype", company
+		):
+			removed[f"{parenttype}: {doctype}"] += n
+		frappe.db.delete(doctype, {field: company})
+	if removed:
+		log("Removed rows other records keep for the company: " + ", ".join(f"{k} ({n})" for k, n in sorted(removed.items())))
 
 
 def blocker(doctype: str, name: str) -> str | None:
