@@ -1,4 +1,6 @@
-"""Work around orphaned tax-template rows (finding F-26).
+"""Tax templates: the orphaned-row workaround (F-26) and no-ITC purchase templates (F-38).
+
+Orphaned rows (F-26).
 
 Company.on_trash deletes a company's Sales/Purchase Taxes and Charges Templates
 and Item Tax Templates with raw SQL, leaving their child rows behind. When a
@@ -38,3 +40,51 @@ def purge_orphans(abbr: str) -> int:
 			removed += frappe.db.count(child_doctype, {"parenttype": parent_doctype, "parent": parent})
 			frappe.db.delete(child_doctype, {"parenttype": parent_doctype, "parent": parent})
 	return removed
+
+
+NO_ITC_TITLE = "Input GST {place}-state (no ITC)"
+
+
+def no_itc_template(place: str, abbr: str) -> str:
+	"""Name of the purchase template an unregistered company uses: place is "In" or "Out"."""
+	return f"{NO_ITC_TITLE.format(place=place)} - {abbr}"
+
+
+def ensure_no_itc_templates(run, company: str, abbr: str):
+	"""Purchase templates for a company not registered for GST (--no-gst, F-38).
+
+	A registered supplier still charges GST, but an unregistered buyer cannot claim
+	it back, so it belongs in the cost of the goods. Neither ERPNext nor
+	india_compliance does this for an unregistered company: the user creates
+	templates whose rows are "Valuation and Total" and selects them on purchases.
+	These copy india_compliance's input templates (same accounts, so per-item GST
+	rates from Item Tax Templates still apply) with that one change. They carry no
+	tax category, so india_compliance never picks them should the company register.
+	"""
+	for place in ("In", "Out"):
+		source = f"Input GST {place}-state - {abbr}"
+		if not frappe.db.exists("Purchase Taxes and Charges Template", source):
+			frappe.throw(f"Purchase template {source!r} not found; india_compliance creates it with the company")
+
+		def create(place=place, source=source):
+			rows = frappe.get_doc("Purchase Taxes and Charges Template", source).taxes
+			return frappe.get_doc(
+				{
+					"doctype": "Purchase Taxes and Charges Template",
+					"title": NO_ITC_TITLE.format(place=place),
+					"company": company,
+					"taxes": [
+						{
+							"category": "Valuation and Total",
+							"add_deduct_tax": "Add",
+							"charge_type": row.charge_type,
+							"account_head": row.account_head,
+							"description": f"{row.description} (no ITC: part of cost)",
+							"rate": row.rate,
+						}
+						for row in rows
+					],
+				}
+			).insert(ignore_permissions=True)
+
+		run.ensure(f"setup:no-itc-template:{place}", create)

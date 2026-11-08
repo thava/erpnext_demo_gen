@@ -11,6 +11,9 @@ from demo_data.jobs import INLINE_JOBS, inline_jobs
 from demo_data.packs import load_pack
 from demo_data.registry import RESUMABLE_STATUSES, Run, active_runs
 
+# Transactions in the user's own company are removed by tier A (registry-based) uninstall.
+WIZARD_COMPANY_SUPPORTED = True
+
 
 class DemoDataError(Exception):
 	"""A refusal or failure with a message meant for the user."""
@@ -35,22 +38,56 @@ def preflight(force: bool = False) -> list[str]:
 			"india_compliance's GST API is enabled; generated invoices could reach the GST portal "
 			"(e-invoice, e-waybill, GSTIN lookups)"
 		)
-	demo = {r.company for r in active_runs()}
-	other_gl = frappe.db.sql(
-		"select company, count(*) from `tabGL Entry` where is_cancelled=0 group by company"
-	)
-	real = {company: n for company, n in other_gl if company not in demo}
-	if real:
-		problems.append(
-			"the site already has transactions ("
-			+ ", ".join(f"{c}: {n} GL entries" for c, n in real.items())
-			+ ")"
-		)
 	if problems and not force:
 		raise DemoDataError(
 			"Refusing to install: " + "; ".join(problems) + ". Use --force to install anyway."
 		)
 	return problems
+
+
+def existing_transactions(only_company: str | None = None) -> list[str]:
+	"""One line per company that already has ledger entries outside any active demo run."""
+	demo = {r.company for r in active_runs()}
+	default = frappe.db.get_single_value("Global Defaults", "default_company")
+	lines = []
+	for company, documents, entries in frappe.db.sql(
+		"""select company, count(distinct voucher_type, voucher_no), count(*)
+		from `tabGL Entry` where is_cancelled=0 group by company"""
+	):
+		if company in demo or (only_company and company != only_company):
+			continue
+		role = " (default company)" if company == default else ""
+		noun = "document" if documents == 1 else "documents"
+		lines.append(f"{company}{role}: {documents} {noun}, {entries} GL entries")
+	return lines
+
+
+def site_in_use(params: dict, force: bool, log=print):
+	"""Existing transactions need --force. Say plainly what installing would do to them.
+
+	In wizard mode only the target company counts: the demo writes nowhere else and
+	leaves the default company as it is, so an unused wizard company needs no --force.
+	"""
+	lines = existing_transactions(params["company"] if params["use_wizard_company"] else None)
+	if not lines:
+		return
+	listing = "\n".join(f"  {line}" for line in lines)
+	if params["use_wizard_company"]:
+		effect = (
+			f"--use-wizard-company adds the demo's documents to {params['company']},\n"
+			"next to its existing ones. Uninstall removes only the demo's documents; yours stay."
+		)
+		ask = "Installing into a company that is in use needs --force."
+	else:
+		effect = (
+			"The demo goes into a new, separate company (a peer, not a child company) and\n"
+			"does not change these. It becomes the default company while installed;\n"
+			"uninstall deletes it and restores the current default."
+		)
+		ask = "This is safe, but because the site is in use, installing needs --force."
+	if not force:
+		raise DemoDataError(f"This site already has transactions:\n{listing}\n{effect}\n{ask}")
+	log(f"Note (--force): this site already has transactions:\n{listing}\n{effect}")
 
 
 def check_redis():
@@ -67,9 +104,16 @@ def check_redis():
 
 # ---------------------------------------------------------------- install
 def resolve_params(
-	pack_id, size, seed, end_date, home_state, company, use_wizard_company
+	pack_id, size, seed, end_date, home_state, company, use_wizard_company, no_gst=False, fictitious_gstin=False
 ) -> tuple[dict, dict]:
+	from demo_data.india.geo import CITIES, STATE_ABBREVIATIONS, resolve_state
+
 	pack = load_pack(pack_id)
+	choices = ", ".join(f"{STATE_ABBREVIATIONS[s]} ({s})" for s in sorted(CITIES))
+	if home_state:
+		given, home_state = home_state, resolve_state(home_state)
+		if not home_state:
+			raise DemoDataError(f"Unknown state {given!r}; use a name or code: {choices}")
 	if size not in pack["sizes"]:
 		raise DemoDataError(f"Unknown size {size!r}; choose one of {', '.join(pack['sizes'])}")
 	params = {
@@ -82,26 +126,91 @@ def resolve_params(
 		"home_state": home_state or pack["company"]["home_state"],
 		"company": company,
 		"use_wizard_company": bool(use_wizard_company),
+		"gst": "unregistered" if no_gst else "registered",
+		"fictitious_gstin": False,
 	}
+	if no_gst and fictitious_gstin:
+		raise DemoDataError("Choose one of --no-gst and --fictitious-gstin")
+	if use_wizard_company and not WIZARD_COMPANY_SUPPORTED:
+		raise DemoDataError(
+			"--use-wizard-company is not available yet: removing demo transactions from your own "
+			"company needs registry-based (tier A) uninstall. Install into a separate demo company instead."
+		)
 	if use_wizard_company:
-		wizard = company or frappe.db.get_single_value("Global Defaults", "default_company")
+		if company:
+			raise DemoDataError(
+				"--demo-company-name names a new demo company; it cannot be used with --use-wizard-company"
+			)
+		wizard = frappe.db.get_single_value("Global Defaults", "default_company")
 		if not wizard or not frappe.db.exists("Company", wizard):
-			raise DemoDataError("--use-wizard-company needs an existing default company (or --company)")
+			raise DemoDataError("--use-wizard-company needs an existing default company")
+		country, currency = frappe.db.get_value("Company", wizard, ["country", "default_currency"])
+		if country != "India" or currency != "INR":
+			raise DemoDataError(
+				f"demo_data supports India only, and {wizard!r} is set up for {country or 'no country'} "
+				f"({currency or 'no currency'}). Its customers, addresses, GST setup and INR prices "
+				"would not fit."
+			)
 		params["company"] = wizard
+		state = company_gst_state(wizard)
+		if state and (no_gst or fictitious_gstin):
+			raise DemoDataError(
+				f"{wizard!r} is already GST-registered (state {state}); leave out --no-gst and --fictitious-gstin"
+			)
+		if state:
+			if home_state and home_state != state:
+				raise DemoDataError(
+					f"--home-state {home_state!r} differs from the GST state of {wizard!r} ({state}); "
+					"leave --home-state out in wizard mode"
+				)
+			params["home_state"] = state
+		elif fictitious_gstin:
+			params["fictitious_gstin"] = True  # setup adds a labelled address; uninstall removes it
+		elif not no_gst:
+			raise DemoDataError(
+				f"{wizard!r} has no GSTIN (no company address with one), so it is unregistered for GST "
+				"and india_compliance charges no GST (F-37). Either add your company address with its "
+				"GSTIN, or pass --fictitious-gstin to have the demo add an address with a made-up GSTIN "
+				"(removed on uninstall), or pass --no-gst --force to generate the demo without GST."
+			)
 	elif company and frappe.db.exists("Company", company):
 		raise DemoDataError(
-			f"Company {company!r} already exists; pick a new name or use --use-wizard-company"
+			f"Company {company!r} already exists; pick another --demo-company-name or use --use-wizard-company"
 		)
-	from demo_data.india.geo import CITIES
-
 	if params["home_state"] not in CITIES:
-		raise DemoDataError(
-			f"No curated cities for state {params['home_state']!r}; choose one of: {', '.join(sorted(CITIES))}"
-		)
+		raise DemoDataError(f"No curated cities for {params['home_state']} yet; choose one of: {choices}")
 	return pack, params
 
 
-INPUT_KEYS = ("pack", "size", "seed", "end_date", "home_state", "use_wizard_company")
+def company_gst_state(company: str) -> str | None:
+	"""The GST state of the company's own GSTIN address, or None when it has none. Without
+	one, india_compliance treats the company as unregistered and charges no GST (F-37)."""
+	addresses = frappe.get_all(
+		"Address",
+		filters=[
+			["Dynamic Link", "link_doctype", "=", "Company"],
+			["Dynamic Link", "link_name", "=", company],
+			["is_your_company_address", "=", 1],
+			["gstin", "is", "set"],
+			["disabled", "=", 0],
+		],
+		fields=["gst_state"],
+		order_by="is_primary_address desc, creation asc",
+		limit=1,
+	)
+	return addresses[0].gst_state if addresses else None
+
+
+NO_GST_WARNING = (
+	"generating without GST: the company is unregistered, so sales carry no GST and the GST "
+	"paid on purchases becomes part of their cost (no input tax credit). This demo's turnover "
+	"is above the GST registration threshold (Rs 40 lakh a year for goods, Rs 20 lakh in "
+	"special-category states), so a real business like it would have to register. All customers "
+	"are in the home state: an unregistered business cannot sell goods to other states"
+)
+
+
+INPUT_KEYS = ("pack", "size", "seed", "end_date", "home_state", "use_wizard_company", "gst", "fictitious_gstin")
 
 
 def find_resumable(params: dict) -> Run | None:
@@ -134,11 +243,25 @@ def install(
 	use_wizard_company=False,
 	force=False,
 	log=print,
+	no_gst=False,
+	fictitious_gstin=False,
 ):
 	warnings = preflight(force)
+	pack_data, params = resolve_params(
+		pack, size, seed, end_date, home_state, company, use_wizard_company, no_gst, fictitious_gstin
+	)
+	site_in_use(params, force, log)
+	if params["gst"] == "unregistered":
+		if not force:
+			raise DemoDataError(f"Refusing to install: {NO_GST_WARNING}. Use --force to install anyway.")
+		warnings.append(NO_GST_WARNING)
+	if params["fictitious_gstin"]:
+		log(
+			f"Note: adding a company address with a made-up GSTIN to {params['company']} (state "
+			f"{params['home_state']}); it is fictitious, for the demo only, and removed on uninstall"
+		)
 	for w in warnings:
 		log(f"Warning (--force): {w}")
-	pack_data, params = resolve_params(pack, size, seed, end_date, home_state, company, use_wizard_company)
 	run = find_resumable(params)
 	if run:
 		log(f"Resuming {run.name}")
@@ -152,6 +275,7 @@ def install(
 	frappe.flags.mute_emails = True
 	try:
 		with inline_jobs() as jobs:
+			log("Setting up the company, warehouses, fiscal years and bank accounts...")
 			company_name = setup_company(run, pack_data)
 			log(f"Company: {company_name}")
 			stats = write_plan(run, pack_data, log)
@@ -164,7 +288,7 @@ def install(
 		run.set_status("Failed", error=frappe.get_traceback())
 		raise DemoDataError(f"{run.name} failed: {e}. Re-run the same command to resume.") from e
 
-	run.set_status("Completed", counts=json.dumps(run.counts(), indent=1))
+	run.set_status("Completed", counts=json.dumps(run.counts(), indent=1), totals=True)
 	if stats["failed"] or stats["skipped"]:
 		log(f"{stats['failed']} failed and {stats['skipped']} skipped; errors are in Demo Data Record")
 	return run
@@ -198,14 +322,23 @@ def plan_for(run: Run, pack: dict) -> list:
 
 	start, end = date_range(getdate(run.params.end_date), run.params.months)
 	ctx = PlanContext(pack, run.params.size, run.params.seed, run.params.home_state, start, end)
+	ctx.sales_gst = run.params.get("gst", "registered") == "registered"
 	return make_plan(ctx)
 
 
 def write_plan(run: Run, pack: dict, log=print) -> dict:
 	from demo_data.writers import ApiWriter, WriteContext
 
+	from demo_data.progress import duration, install_seconds
+
 	plan = plan_for(run, pack)
-	log(f"Plan: {len(plan)} documents")
+	todo = len(plan) - len(set(run.done_map()) & {pd.key for pd in plan})
+	log(f"Plan: {len(plan)} documents" + (f", {todo} still to write" if todo < len(plan) else ""))
+	if todo:
+		log(
+			f"Writing them takes about {duration(install_seconds(todo))}; please wait. Progress is shown "
+			"every 20 s. If stopped (Ctrl+C), the same command resumes where it left off."
+		)
 	wctx = WriteContext.for_run(run, pack, plan_start(run))
 	stats = ApiWriter(run, wctx, log=log).execute(plan)
 	log(
@@ -222,19 +355,53 @@ def plan_start(run: Run):
 
 
 # ---------------------------------------------------------------- status
-def status() -> list[dict]:
-	runs = frappe.get_all(
-		"Demo Data Run",
-		fields=["name", "status", "pack", "size", "seed", "end_date", "company", "started_at", "finished_at"],
-		order_by="creation desc",
-	)
+RUN_FIELDS = ["name", "status", "pack", "size", "seed", "end_date", "company", "started_at", "finished_at"]
+
+
+def status() -> dict:
+	"""A short summary: the active runs, totals for the site, and the latest run."""
+	runs = frappe.get_all("Demo Data Run", fields=RUN_FIELDS, order_by="creation desc")
+	by_status: dict = {}
 	for r in runs:
-		r["counts"] = Run(r.name).counts()
+		by_status[r.status] = by_status.get(r.status, 0) + 1
+	active = [r for r in runs if r.status != "Uninstalled"]
+	for r in active:
+		r["totals"] = Run(r.name).totals()
+	return {"runs": len(runs), "by_status": by_status, "active": active, "latest": runs[0] if runs else None}
+
+
+def history(run_name: str | None = None) -> list[dict]:
+	"""Runs with their install and uninstall events; the CLI merges them into one timeline.
+
+	With run_name, that run only, plus per doctype what the install created
+	(installed) and where each record stands now (current).
+	"""
+	filters = {"name": run_name} if run_name else {}
+	runs = frappe.get_all("Demo Data Run", filters=filters, fields=[*RUN_FIELDS, "params"], order_by="creation")
+	if run_name and not runs:
+		raise DemoDataError(f"No demo run {run_name!r}")
+	for r in runs:
+		run = Run(r.name)
+		r["months"] = frappe.parse_json(r.params or "{}").get("months")
+		r["events"] = run.events() or legacy_events(r)
+		if run_name:
+			r["installed"] = frappe.parse_json(run.doc.counts or "{}")
+			r["current"] = run.counts()
 	return runs
 
 
+def legacy_events(r) -> list[dict]:
+	"""Runs from before events were recorded: rebuild what the timestamps show."""
+	events = []
+	if r.started_at:
+		events.append({"at": str(r.started_at), "status": "Running"})
+	if r.finished_at:
+		events.append({"at": str(r.finished_at), "status": r.status})
+	return events
+
+
 # ---------------------------------------------------------------- uninstall
-def uninstall(run_name: str | None = None, log=print) -> Run:
+def uninstall(run_name: str | None = None, log=print, registry_only: bool = False) -> Run:
 	from demo_data.uninstall import uninstall_run
 
 	if not run_name:
@@ -247,7 +414,7 @@ def uninstall(run_name: str | None = None, log=print) -> Run:
 	run = Run(run_name)
 	if run.doc.status == "Uninstalled":
 		raise DemoDataError(f"{run.name} is already uninstalled")
-	uninstall_run(run, log=log)
+	uninstall_run(run, log=log, registry_only=registry_only)
 	return run
 
 

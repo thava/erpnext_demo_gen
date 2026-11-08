@@ -7,9 +7,9 @@ from demo_data.packs import load_pack
 from demo_data.planner import PlanContext, make_plan
 
 
-def plan(size="small", seed=1, home="Tamil Nadu"):
-	pack = load_pack("furniture_store")
-	ctx = PlanContext(pack, size, seed, home, dt.date(2025, 11, 9), dt.date(2026, 11, 8))
+def plan(size="small", seed=1, home="Tamil Nadu", pack_id="furniture_store", sales_gst=True):
+	pack = load_pack(pack_id)
+	ctx = PlanContext(pack, size, seed, home, dt.date(2025, 11, 9), dt.date(2026, 11, 8), sales_gst)
 	return pack, make_plan(ctx)
 
 
@@ -83,6 +83,15 @@ class TestMasterPlan(UnitTestCase):
 		b2c = [d.params for d in docs if d.doctype == "Customer" and d.params["type"] == "Individual"]
 		self.assertTrue(b2c)
 		self.assertTrue(all(p["address"]["state"] == "Karnataka" for p in b2c))
+
+	def test_unregistered_company_sells_only_in_home_state(self):
+		# inter-state and SEZ supplies need GST registration (--no-gst)
+		_, docs = plan(pack_id="electrical_distributor", home="Karnataka", sales_gst=False)
+		customers = [d.params for d in docs if d.doctype == "Customer"]
+		self.assertTrue(all(p["address"]["state"] == "Karnataka" for p in customers if p.get("address")))
+		self.assertFalse(any(p.get("gst_category") == "SEZ" for p in customers))
+		suppliers = [d.params for d in docs if d.doctype == "Supplier"]
+		self.assertTrue(any(p["address"]["state"] != "Karnataka" for p in suppliers))
 
 	def test_items_have_prices_with_margin(self):
 		_, docs = plan()

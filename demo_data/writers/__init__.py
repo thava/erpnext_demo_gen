@@ -1,10 +1,11 @@
 """Writers execute a plan against the site (design 5.6).
 
-ApiWriter (tier 1) goes through ERPNext's own insert and submit paths. Each
-document runs inside a savepoint: a failure rolls back only that document, is
-recorded as Failed with its error, and dependants are recorded as Skipped
-(skip-and-log, M-12). Commits happen in batches together with the registry rows
-(M-8). Documents already in the registry are skipped, so a re-run resumes.
+ApiWriter (tier 1) goes through ERPNext's own insert and submit paths, one
+document per transaction, committed together with its registry row (M-8). A
+failure rolls back only that document and is recorded as Failed with its error;
+dependants are recorded as Skipped (skip-and-log, M-12); transient database
+conflicts are retried. Documents already in the registry are skipped, so a
+re-run resumes.
 """
 
 import time
@@ -35,10 +36,14 @@ class WriteContext:
 	selling_price_list: str
 	buying_price_list: str
 	tax_templates: dict = field(default_factory=dict)  # gst rate -> Item Tax Template
+	gst_registered: bool = True  # False with --no-gst: no GST on sales, purchase GST is a cost
+	home_state_code: str = ""
 
 	@classmethod
 	def for_run(cls, run: Run, pack: dict, start_date: date) -> "WriteContext":
 		from frappe.utils.nestedset import get_root_of
+
+		from demo_data.india.geo import state_code
 
 		company = run.doc.company
 		abbr = frappe.get_cached_value("Company", company, "abbr")
@@ -61,6 +66,8 @@ class WriteContext:
 			buying_price_list=frappe.db.get_single_value("Buying Settings", "buying_price_list")
 			or "Standard Buying",
 			tax_templates=templates,
+			gst_registered=run.params.get("gst", "registered") == "registered",
+			home_state_code=state_code(run.params.home_state),
 		)
 
 	def item_tax_template(self, rate) -> str:
@@ -81,21 +88,56 @@ def resolve(value, done: dict):
 	return value
 
 
-class ApiWriter:
-	def __init__(
-		self, run: Run, wctx: WriteContext, batch_size: int = 50, max_failures: int | None = None, log=print
-	):
-		self.run, self.wctx, self.batch_size, self.log = run, wctx, batch_size, log
-		self.max_failures = max_failures
-		self.stats = {"created": 0, "reused": 0, "failed": 0, "skipped": 0, "already": 0}
+RETRIES = 4  # waits 2, 4 and 8 s between attempts
 
-	def execute(self, plan: list[PlannedDoc]):
+
+def is_transient(error: Exception) -> bool:
+	"""Errors where MariaDB aborted the transaction because of another connection
+	(deadlock, lock wait timeout, or "Record has changed since last read", 1020);
+	the same document usually succeeds when written again."""
+	if frappe.db.is_deadlocked(error) or frappe.db.is_timedout(error):
+		return True
+	args = getattr(error, "args", ())
+	return bool(args) and args[0] == 1020
+
+
+class ApiWriter:
+	"""Writes one document per transaction.
+
+	Batched commits with savepoints did not survive MariaDB aborting a transaction
+	when a background worker touched the same rows (F-34): the savepoint vanished
+	with it. One document per commit costs little next to the ~0.2 s a document
+	takes, keeps every committed document registered, and makes a retry safe.
+	"""
+
+	def __init__(self, run: Run, wctx: WriteContext, max_failures: int | None = None, log=print):
+		self.run, self.wctx, self.log = run, wctx, log
+		self.max_failures = max_failures
+		self.stats = {"created": 0, "reused": 0, "failed": 0, "skipped": 0, "already": 0, "retried": 0}
+
+	def build(self, pd: PlannedDoc, done: dict):
 		from demo_data.writers import builders
 
+		for attempt in range(1, RETRIES + 1):
+			try:
+				return getattr(builders, pd.builder)(resolve(pd.params, done), self.wctx, pd)
+			except Exception as e:
+				frappe.db.rollback()
+				frappe.local.message_log = []
+				if attempt < RETRIES and is_transient(e):
+					self.stats["retried"] += 1
+					time.sleep(2**attempt)
+					continue
+				raise
+
+	def execute(self, plan: list[PlannedDoc]):
 		done = self.run.done_map()
-		unavailable: set[str] = set()
 		max_failures = self.max_failures if self.max_failures is not None else max(5, len(plan) // 50)
-		pending, started = 0, time.monotonic()
+		from demo_data.progress import Progress
+
+		started = time.monotonic()
+		progress = Progress(sum(1 for pd in plan if pd.key not in done), self.log, "documents written")
+		written = 0
 
 		for pd in plan:
 			if pd.key in done:
@@ -104,17 +146,13 @@ class ApiWriter:
 			blocked = [k for k in pd.depends_on if k not in done]
 			if blocked:
 				self.run.record(pd.key, pd.doctype, None, "Skipped", f"depends on {', '.join(blocked)}")
-				unavailable.add(pd.key)
+				frappe.db.commit()
 				self.stats["skipped"] += 1
 				continue
 
-			savepoint = f"dd_{pd.seq}"
-			frappe.db.savepoint(savepoint)
 			try:
-				doc = getattr(builders, pd.builder)(resolve(pd.params, done), self.wctx, pd)
+				doc = self.build(pd, done)
 			except Exception as e:
-				frappe.db.rollback(save_point=savepoint)
-				frappe.local.message_log = []
 				self.run.record(
 					pd.key,
 					pd.doctype,
@@ -122,11 +160,10 @@ class ApiWriter:
 					"Failed",
 					f"{type(e).__name__}: {e}\n{traceback.format_exc(limit=4)}",
 				)
-				unavailable.add(pd.key)
+				frappe.db.commit()
 				self.stats["failed"] += 1
 				self.log(f"  failed {pd.key}: {type(e).__name__}: {str(e)[:200]}")
 				if self.stats["failed"] > max_failures:
-					frappe.db.commit()
 					raise WriterAborted(
 						f"{self.stats['failed']} documents failed (limit {max_failures}); see Demo Data Record errors"
 					) from e
@@ -138,13 +175,11 @@ class ApiWriter:
 				else {0: "Created", 1: "Submitted", 2: "Cancelled"}[doc.docstatus]
 			)
 			self.run.record(pd.key, doc.doctype, doc.name, state)
+			frappe.db.commit()
 			done[pd.key] = doc.name
 			self.stats["reused" if state == "Reused" else "created"] += 1
-			pending += 1
-			if pending >= self.batch_size:
-				frappe.db.commit()
-				pending = 0
-				self.log(f"  {self.stats['created']} created, {time.monotonic() - started:.0f}s")
+			written += 1
+			progress.update(written)
 
 		frappe.db.commit()
 		self.stats["seconds"] = round(time.monotonic() - started, 1)

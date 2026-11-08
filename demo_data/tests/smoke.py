@@ -63,17 +63,35 @@ def snapshot() -> dict:
 	return counts
 
 
-def run(pack: str = "furniture_store", size: str = "small", seed: int = 11, end_date: str | None = None):
+def run(
+	pack: str = "furniture_store",
+	size: str = "small",
+	seed: int = 11,
+	end_date: str | None = None,
+	use_wizard_company: bool = False,
+	registry_only: bool = False,
+	no_gst: bool = False,
+	fictitious_gstin: bool = False,
+):
 	from demo_data import service
 
 	before = snapshot()
-	run_doc = service.install(pack, size, int(seed), end_date, force=True)
+	run_doc = service.install(
+		pack,
+		size,
+		int(seed),
+		end_date,
+		use_wizard_company=use_wizard_company,
+		force=True,
+		no_gst=no_gst,
+		fictitious_gstin=fictitious_gstin,
+	)
 	_, checks = service.verify(run_doc.name)
 	failed = [c for c in checks if not c.ok]
 	for c in checks:
 		print(f"  {'ok  ' if c.ok else 'FAIL'} {c.name}: {c.detail}")
 
-	service.uninstall(run_doc.name)
+	service.uninstall(run_doc.name, registry_only=registry_only)
 	after = snapshot()
 	changed = {k: (before[k], after[k]) for k in before if before[k] != after[k]}
 	if changed:

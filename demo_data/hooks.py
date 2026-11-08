@@ -286,4 +286,4 @@ override_whitelisted_methods = {
 	"erpnext.setup.demo.clear_demo_data": "demo_data.api.clear_demo_data",
 }
 
-required_apps = ["frappe/erpnext", "resilient-tech/india-compliance"]
+required_apps = ["erpnext", "india_compliance"]

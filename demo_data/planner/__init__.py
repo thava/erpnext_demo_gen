@@ -51,6 +51,7 @@ class PlanContext:
 	home_state: str
 	start_date: date
 	end_date: date
+	sales_gst: bool = True  # False for an unregistered company: sales carry no GST
 
 	@property
 	def size(self) -> dict:

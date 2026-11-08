@@ -318,6 +318,15 @@ def purchase_order(p, w, pd):
 			}
 		)
 	doc.schedule_date = p.schedule_date
+	if w.gst_registered:
+		return _save(doc, pd, fill_taxes=True)
+	# Unregistered company: nothing picks a template (F-38), so select the no-ITC one
+	# by the supplier's state, as the user would; an unregistered supplier charges none.
+	from demo_data.setup.tax_templates import no_itc_template
+
+	gstin = frappe.db.get_value("Supplier", p.supplier, "gstin")
+	if gstin:
+		doc.taxes_and_charges = no_itc_template("In" if gstin[:2] == w.home_state_code else "Out", w.abbr)
 	return _save(doc, pd, fill_taxes=True)
 
 
@@ -485,6 +494,13 @@ def _payment_account(doc, w, pd, cash: bool, field: str):
 
 def cancel(p, w, pd):
 	doc = frappe.get_doc(p.doctype, p.doc)
+	if doc.docstatus == 2:  # cancelled already (the repost below commits; a resume may repeat this step)
+		return doc
 	doc.flags.notify_update = False
 	doc.cancel()
+	# A cancellation queues a stock repost (F-31). Run it now, before the scheduler's
+	# worker picks it up and updates Bin rows under the writer (F-34).
+	from demo_data.service import process_reposts
+
+	process_reposts(w.company, log=lambda msg: None)
 	return doc

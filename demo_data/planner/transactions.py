@@ -240,8 +240,8 @@ def credit_days(rng, channel, customer, terms_days) -> int:
 	return TERM_DAYS.get(term, 0)
 
 
-def amount_of(lines, items, rate_field="sell") -> float:
-	return sum(with_tax(getattr(items[k], rate_field) * q, items[k].gst) for k, q in lines)
+def amount_of(lines, items, rate_field="sell", gst=True) -> float:
+	return sum(with_tax(getattr(items[k], rate_field) * q, items[k].gst if gst else 0) for k, q in lines)
 
 
 def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, items, terms_days):
@@ -261,9 +261,9 @@ def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, 
 	recent = [s for s in sales if days_between(s["date"], ctx.end_date) <= 30]
 	for s in rng.sample(recent, min(len(recent), max(1, round(rates["left_in_draft"] * n)))):
 		s["draft"] = True
+	# Cancellations happen on dealer invoices (plan_delivery): cancelling a stock-moving
+	# showroom invoice queues a stock repost that the scheduler then races (F-34).
 	others = [s for s in sales if not s.get("draft")]
-	for s in rng.sample(others, min(len(others), max(1, round(rates["cancelled"] * n)))):
-		s["cancel"] = True
 	returnable = [s for s in others if not s.get("cancel") and days_between(s["date"], ctx.end_date) >= 3]
 	for s in rng.sample(returnable, min(len(returnable), max(1, round(rates["returns"] * n)))):
 		s["return"] = True
@@ -271,9 +271,9 @@ def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, 
 	for s in sales:
 		key = tl.next_key("SI")
 		lines = [{"item": ref(k), "qty": q, "rate": items[k].sell} for k, q in s["lines"]]
-		amount = amount_of(s["lines"], items)
+		amount = amount_of(s["lines"], items, gst=ctx.sales_gst)
 		draft = bool(s.get("draft"))
-		event = tl.add(
+		tl.add(
 			Event(
 				s["date"],
 				"sales_invoice",
@@ -286,24 +286,10 @@ def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, 
 					"credit_days": s["days"],
 					"draft": draft,
 				},
-				consumes=[] if draft or s.get("cancel") else s["lines"],
+				consumes=[] if draft else s["lines"],
 			)
 		)
 		if draft:
-			continue
-		if s.get("cancel"):
-			tl.add(
-				Event(
-					s["date"],
-					"sales_invoice",
-					f"{key}:cancel",
-					"Sales Invoice",
-					"cancel",
-					{"doctype": "Sales Invoice", "doc": ref(key)},
-					order=event.order,
-					after=1,
-				)
-			)
 			continue
 		paid_now = plan_customer_payment(ctx, tl, rng, key, s["date"], amount, s["days"], cash=not s["days"])
 		if s.get("return"):
@@ -410,7 +396,7 @@ def plan_delivery(ctx, tl, rng, so_key, dn_date, lines, fraction, items, days):
 		)
 	)
 	si_key = tl.next_key("SI")
-	tl.add(
+	invoice = tl.add(
 		Event(
 			dn_date,
 			"sales_invoice",
@@ -420,7 +406,36 @@ def plan_delivery(ctx, tl, rng, so_key, dn_date, lines, fraction, items, days):
 			{"delivery_note": ref(dn_key), "credit_days": days},
 		)
 	)
-	plan_customer_payment(ctx, tl, rng, si_key, dn_date, amount_of(lines, items), days, cash=False)
+	# Some invoices are raised wrongly, cancelled and re-issued from the same delivery
+	# note. No stock moves, so no repost is queued. At least one per install, so the
+	# cancelled state always shows.
+	rate = ctx.pack["behavior"]["rates"]["cancelled"]
+	if rng.random() < rate or (not tl.counters["cancelled"] and tl.counters["DN"] >= 10):
+		tl.counters["cancelled"] += 1
+		tl.add(
+			Event(
+				dn_date,
+				"sales_invoice",
+				f"{si_key}:cancel",
+				"Sales Invoice",
+				"cancel",
+				{"doctype": "Sales Invoice", "doc": ref(si_key)},
+				order=invoice.order,
+				after=1,
+			)
+		)
+		si_key = tl.next_key("SI")
+		tl.add(
+			Event(
+				dn_date,
+				"sales_invoice",
+				si_key,
+				"Sales Invoice",
+				"invoice_from_delivery",
+				{"delivery_note": ref(dn_key), "credit_days": days},
+			)
+		)
+	plan_customer_payment(ctx, tl, rng, si_key, dn_date, amount_of(lines, items, gst=ctx.sales_gst), days, cash=False)
 
 
 def plan_customer_payment(ctx, tl, rng, si_key, si_date, amount, days, cash) -> bool:

@@ -70,6 +70,65 @@ STREETS = [
 ]
 
 
+# ISO 3166-2:IN subdivision codes, keyed by the state names india_compliance uses.
+STATE_ABBREVIATIONS = {
+	"Andaman and Nicobar Islands": "AN",
+	"Andhra Pradesh": "AP",
+	"Arunachal Pradesh": "AR",
+	"Assam": "AS",
+	"Bihar": "BR",
+	"Chandigarh": "CH",
+	"Chhattisgarh": "CT",
+	"Dadra and Nagar Haveli and Daman and Diu": "DH",
+	"Delhi": "DL",
+	"Goa": "GA",
+	"Gujarat": "GJ",
+	"Haryana": "HR",
+	"Himachal Pradesh": "HP",
+	"Jammu and Kashmir": "JK",
+	"Jharkhand": "JH",
+	"Karnataka": "KA",
+	"Kerala": "KL",
+	"Ladakh": "LA",
+	"Lakshadweep Islands": "LD",
+	"Madhya Pradesh": "MP",
+	"Maharashtra": "MH",
+	"Manipur": "MN",
+	"Meghalaya": "ML",
+	"Mizoram": "MZ",
+	"Nagaland": "NL",
+	"Odisha": "OR",
+	"Puducherry": "PY",
+	"Punjab": "PB",
+	"Rajasthan": "RJ",
+	"Sikkim": "SK",
+	"Tamil Nadu": "TN",
+	"Telangana": "TG",
+	"Tripura": "TR",
+	"Uttar Pradesh": "UP",
+	"Uttarakhand": "UT",
+	"West Bengal": "WB",
+}
+# Other codes in common use (vehicle registration, older ISO) for the same states.
+STATE_ALIASES = {"CG": "Chhattisgarh", "OD": "Odisha", "TS": "Telangana", "UK": "Uttarakhand", "DD": "Dadra and Nagar Haveli and Daman and Diu", "DN": "Dadra and Nagar Haveli and Daman and Diu"}
+
+
+def _squash(name: str) -> str:
+	"""Compare names ignoring case, spaces and punctuation: "Tamilnadu" matches "Tamil Nadu"."""
+	return "".join(ch for ch in name.lower().replace("&", "and") if ch.isalnum())
+
+
+def resolve_state(value: str) -> str | None:
+	"""A state name from its name (any case or spacing), two-letter code (TN) or GST state code (33)."""
+	from india_compliance.gst_india.constants import INDIAN_STATES
+
+	text = value.strip()
+	by_name = {_squash(name): name for name in INDIAN_STATES}
+	by_code = {code: name for name, code in STATE_ABBREVIATIONS.items()} | STATE_ALIASES
+	by_gst = {number: name for name, number in INDIAN_STATES.items()}
+	return by_name.get(_squash(text)) or by_code.get(text.upper()) or by_gst.get(text.zfill(2) if text.isdigit() else text)
+
+
 def state_code(state: str) -> str:
 	from india_compliance.gst_india.constants import STATE_NUMBERS
 

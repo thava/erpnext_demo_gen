@@ -155,8 +155,13 @@ def plan_customers(plan: Plan):
 				},
 			}
 		else:
-			state = pick_state(rng, ctx.home_state, behavior["geography"]["home_state_share"])
+			# An unregistered business cannot supply goods to other states or to SEZ units
+			# (both are inter-state supplies, which need GST registration at any turnover).
+			home_share = behavior["geography"]["home_state_share"] if ctx.sales_gst else 1.0
+			state = pick_state(rng, ctx.home_state, home_share)
 			category = weighted(rng, behavior["gst_categories"])
+			if category == "sez" and not ctx.sales_gst:
+				category = "registered"
 			gst_category = {"registered": "Registered Regular", "sez": "SEZ"}.get(category, "Unregistered")
 			params = business_party(
 				rng, state, parties["customer_nouns"], taken, category != "unregistered", gst_category

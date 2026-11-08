@@ -50,3 +50,15 @@ class TestGeo(UnitTestCase):
 		for state in geo.CITIES:
 			address = frappe._dict(geo.make_address(rng, state))
 			validate_pincode(address)  # throws when outside the state's range
+
+	def test_resolve_state_accepts_names_and_codes(self):
+		from india_compliance.gst_india.constants import INDIAN_STATES
+
+		self.assertEqual(set(geo.STATE_ABBREVIATIONS), set(INDIAN_STATES) - {"Other Territory"})
+		self.assertEqual(len(set(geo.STATE_ABBREVIATIONS.values())), len(geo.STATE_ABBREVIATIONS))
+		for value in ("Tamil Nadu", "tamil nadu", "Tamilnadu", "TAMIL-NADU", " TN ", "tn", "33"):
+			self.assertEqual(geo.resolve_state(value), "Tamil Nadu")
+		self.assertEqual(geo.resolve_state("TS"), "Telangana")
+		self.assertEqual(geo.resolve_state("Jammu & Kashmir"), "Jammu and Kashmir")
+		self.assertEqual(geo.resolve_state("7"), "Delhi")
+		self.assertIsNone(geo.resolve_state("XX"))

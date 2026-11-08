@@ -1,5 +1,8 @@
 """Demo company and India set-up (milestone 1).
 
+With --no-gst no address is created, so the company stays unregistered for GST. In
+wizard mode the company is the user's; only --fictitious-gstin adds an address to it.
+
 Creates, through the registry: the demo Company (ERPNext installs India
 fixtures and india_compliance adds GST accounts and tax templates, F-5), its
 GSTIN-bearing Address, the pack's warehouses and every Fiscal Year the date
@@ -17,7 +20,7 @@ from demo_data import naming
 from demo_data.india import geo
 from demo_data.india.gstin import make_gstin, make_pan
 from demo_data.registry import Run
-from demo_data.setup.tax_templates import purge_orphans
+from demo_data.setup.tax_templates import ensure_no_itc_templates, purge_orphans
 
 DEMO_LABEL = "Fictional company created by the demo_data app. All names, GSTINs and figures are made up."
 
@@ -46,7 +49,7 @@ def choose_company_name(run: Run, pack: dict) -> str:
 		name = naming.company_name(rng, pack["company"]["industry_nouns"], "Pvt Ltd")
 		if not frappe.db.exists("Company", name):
 			return name
-	frappe.throw("Could not find an unused company name; pass --company")
+	frappe.throw("Could not find an unused company name; pass --demo-company-name")
 
 
 def setup_company(run: Run, pack: dict) -> str:
@@ -73,6 +76,7 @@ def setup_company(run: Run, pack: dict) -> str:
 					"chart_of_accounts": "Standard",
 					"default_gst_rate": "18.0",  # Select field of strings (F-24)
 					"company_description": DEMO_LABEL,
+					**({"gst_category": "Unregistered"} if params.get("gst") == "unregistered" else {}),
 				}
 			).insert(ignore_permissions=True)
 
@@ -83,10 +87,12 @@ def setup_company(run: Run, pack: dict) -> str:
 	def create_address():
 		rng = rng_for(run, "company-address")
 		gstin = make_gstin(geo.state_code(home_state), make_pan(rng, "company", company))
+		# in the user's own company, say plainly that the GSTIN is made up
+		title = f"{company} (demo, fictitious GSTIN)" if params.use_wizard_company else company
 		return frappe.get_doc(
 			{
 				"doctype": "Address",
-				"address_title": company,
+				"address_title": title,
 				"address_type": "Billing",
 				**geo.make_address(rng, home_state),
 				"gstin": gstin,
@@ -97,7 +103,7 @@ def setup_company(run: Run, pack: dict) -> str:
 			}
 		).insert(ignore_permissions=True)
 
-	if not params.use_wizard_company:
+	if params.get("gst") != "unregistered" and (not params.use_wizard_company or params.get("fictitious_gstin")):
 		run.ensure("setup:company-address", create_address)
 
 	parent_warehouse = frappe.db.get_value(
@@ -122,8 +128,10 @@ def setup_company(run: Run, pack: dict) -> str:
 	for fy_start in fiscal_year_starts(start, end):
 		ensure_fiscal_year(run, fy_start, company)
 
-	if not params.use_wizard_company:
-		setup_banking(run, company, abbr)
+	if params.get("gst") == "unregistered":
+		ensure_no_itc_templates(run, company, abbr)
+
+	setup_banking(run, company, abbr)
 
 	set_defaults(run, company)
 	return company
@@ -183,7 +191,12 @@ def setup_banking(run: Run, company: str, abbr: str):
 			}
 		).insert(ignore_permissions=True),
 	)
-	frappe.db.set_value("Company", company, "default_bank_account", bank)
+	# Record every change, so uninstall can undo it in a company that stays (wizard mode).
+	banking = run.params.get("banking") or {"modes_added": []}
+	previous = frappe.db.get_value("Company", company, "default_bank_account")
+	if not previous:
+		frappe.db.set_value("Company", company, "default_bank_account", bank)
+		banking.update(set_default_bank=True, previous_default_bank=None)
 	cash = frappe.get_cached_value("Company", company, "default_cash_account")
 	for mode in frappe.get_all("Mode of Payment", filters={"enabled": 1}, fields=["name", "type"]):
 		account = (
@@ -197,6 +210,8 @@ def setup_banking(run: Run, company: str, abbr: str):
 			doc.append("accounts", {"company": company, "default_account": account})
 			doc.flags.ignore_permissions = True
 			doc.save()
+			banking["modes_added"] = sorted({*banking["modes_added"], mode.name})
+	run.update_params(banking=banking)
 	frappe.db.commit()
 
 

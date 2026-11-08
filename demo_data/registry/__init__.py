@@ -74,16 +74,40 @@ class Run:
 		return cls(doc.name)
 
 	# ------------------------------------------------------------ status
-	def set_status(self, status: str, error: str | None = None, **values):
+	def set_status(self, status: str, error: str | None = None, totals: bool = False, **values):
+		"""Change status and append an event to the run's history (see events()).
+
+		totals adds the run's document count per state to the event, e.g. how many
+		were created on install or deleted and kept on uninstall.
+		"""
+		now = now_datetime()
 		values = {"status": status, **values}
 		if status == "Running" and not self.doc.started_at:
-			values["started_at"] = now_datetime()
+			values["started_at"] = now
 		if status in ("Completed", "Failed", "Uninstalled"):
-			values["finished_at"] = now_datetime()
+			values["finished_at"] = now
 		if error is not None:
 			values["error"] = error
+		event = {"at": str(now.replace(microsecond=0)), "status": status}
+		if totals:
+			event["documents"] = self.totals()
+		if error:
+			lines = error.strip().splitlines()
+			event["error"] = (lines[-1] if lines[0].startswith("Traceback") else lines[0])[:200]
+		values["events"] = json.dumps([*self.events(), event], indent=1)
 		self.doc.db_set(values)
 		frappe.db.commit()
+
+	def events(self) -> list[dict]:
+		return frappe.parse_json(self.doc.get("events") or "[]")
+
+	def totals(self) -> dict:
+		"""Documents per state across all doctypes, e.g. {"Submitted": 850, "Created": 150}."""
+		out: dict = {}
+		for states in self.counts().values():
+			for state, n in states.items():
+				out[state] = out.get(state, 0) + n
+		return out
 
 	def update_params(self, **values):
 		self.params.update(values)

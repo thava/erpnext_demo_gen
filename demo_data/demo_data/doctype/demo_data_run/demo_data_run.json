@@ -22,6 +22,7 @@
   "params",
   "app_versions",
   "counts",
+  "events",
   "error"
  ],
  "fields": [
@@ -116,6 +117,13 @@
    "read_only": 1
   },
   {
+   "fieldname": "events",
+   "fieldtype": "JSON",
+   "label": "Events",
+   "read_only": 1,
+   "description": "Install and uninstall events, oldest first"
+  },
+  {
    "fieldname": "error",
    "fieldtype": "Long Text",
    "label": "Error",
@@ -126,7 +134,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-08 01:30:23.413824",
+ "modified": "2026-11-08 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Demo Data",
  "name": "Demo Data Run",

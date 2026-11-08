@@ -189,25 +189,48 @@ def check_no_pending_reposts(ctx) -> Check:
 
 
 def check_tax_rows(ctx) -> Check:
-	"""Every submitted sale and every purchase from a GST-registered supplier carries GST rows (F-16)."""
-	missing = []
+	"""GST rows match the company's registration.
+
+	Registered (F-16): every submitted sale and every purchase from a GST-registered
+	supplier carries GST rows. Unregistered (--no-gst): sales carry none, and those
+	purchases carry GST as part of cost ("Valuation and Total"), since no credit can
+	be claimed.
+	"""
+	registered = ctx.run.params.get("gst", "registered") == "registered"
+	wrong = []
+	sales_rows = "exists" if registered else "not exists"
 	for doctype in ("Quotation", "Sales Order", "Sales Invoice"):
-		missing += frappe.db.sql_list(
+		wrong += frappe.db.sql_list(
 			f"""select d.name from `tab{doctype}` d where d.company=%s and d.docstatus=1
-			and not exists (select 1 from `tabSales Taxes and Charges` t where t.parent=d.name)""",
+			and not {sales_rows} (select 1 from `tabSales Taxes and Charges` t where t.parent=d.name)""",
 			(ctx.company,),
 		)
+	cost_only = "" if registered else "and t.category = 'Valuation and Total'"
 	for doctype in ("Purchase Order", "Purchase Invoice"):
-		missing += frappe.db.sql_list(
+		wrong += frappe.db.sql_list(
 			f"""select d.name from `tab{doctype}` d join tabSupplier s on s.name=d.supplier
 			where d.company=%s and d.docstatus=1 and s.gst_category != 'Unregistered'
-			and not exists (select 1 from `tabPurchase Taxes and Charges` t where t.parent=d.name)""",
+			and not exists (select 1 from `tabPurchase Taxes and Charges` t
+				where t.parent=d.name {cost_only})""",
 			(ctx.company,),
 		)
-	return Check("taxable documents have GST rows", not missing, ", ".join(missing[:5]) or "all present")
+	if wrong and ctx.run.params.get("use_wizard_company"):
+		# the wizard company also holds the user's own documents; judge only the run's
+		ours = set(
+			frappe.get_all(
+				"Demo Data Record", filters={"run": ctx.run.name, "ref_name": ["in", wrong]}, pluck="ref_name"
+			)
+		)
+		wrong = [name for name in wrong if name in ours]
+	if registered:
+		return Check("taxable documents have GST rows", not wrong, ", ".join(wrong[:5]) or "all present")
+	return Check(
+		"no GST on sales, purchase GST in cost (unregistered)",
+		not wrong,
+		", ".join(wrong[:5]) or "all as expected",
+	)
 
 
-# ---------------------------------------------------------------- registry
 def check_registry(ctx) -> list[Check]:
 	records = frappe.get_all(
 		"Demo Data Record",
@@ -222,17 +245,22 @@ def check_registry(ctx) -> list[Check]:
 			if (doctype, name) not in registered:
 				unregistered.append(f"{doctype} {name}")
 	gaps = ctx.run.gaps()
-	return [
+	checks = [
 		Check(
 			"registered documents exist", not missing, ", ".join(missing[:5]) or f"{len(registered)} checked"
 		),
-		Check(
-			"demo company has no unregistered documents",
-			not unregistered,
-			", ".join(unregistered[:5]) or "none",
-		),
 		Check("no failed or skipped plan steps", not gaps, ", ".join(gaps[:5]) or "none"),
 	]
+	if not ctx.run.params.get("use_wizard_company"):  # the wizard company also holds the user's own documents
+		checks.insert(
+			1,
+			Check(
+				"demo company has no unregistered documents",
+				not unregistered,
+				", ".join(unregistered[:5]) or "none",
+			),
+		)
+	return checks
 
 
 # ---------------------------------------------------------------- screens
