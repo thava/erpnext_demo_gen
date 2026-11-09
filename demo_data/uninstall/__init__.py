@@ -25,7 +25,7 @@ from demo_data.setup.tax_templates import delete_template_rows
 LEDGERS = ("GL Entry", "Stock Ledger Entry", "Payment Ledger Entry")
 
 
-def uninstall_run(run: Run, log=print, registry_only: bool = False):
+def uninstall_run(run: Run, log=print, registry_only: bool = False, no_backup: bool = False):
 	from demo_data.progress import duration, remove_seconds
 	from demo_data.service import DemoDataError, check_redis
 
@@ -33,6 +33,8 @@ def uninstall_run(run: Run, log=print, registry_only: bool = False):
 	own_company = not run.params.get("use_wizard_company")
 	tier_b = own_company and not registry_only and company and frappe.db.exists("Company", company)
 	one_by_one = not tier_b
+	if not own_company and not no_backup:
+		safety_backup(log)
 	run.set_status("Uninstalling", error="")
 	documents = sum(
 		n for states in run.counts().values() for st, n in states.items() if st in ("Created", "Submitted")
@@ -54,6 +56,7 @@ def uninstall_run(run: Run, log=print, registry_only: bool = False):
 
 				kept_transactions = remove_transactions(run, log)
 			restore_banking(run, company)
+			restore_gst_settings(run)
 			log("Deleting the demo's customers, suppliers, items and other setup records...")
 			skipped = [
 				f"{doctype} {name}: {frappe.utils.strip_html(reason)[:200]}"
@@ -112,6 +115,13 @@ def restore_banking(run: Run, company: str):
 		frappe.db.set_value("Company", company, "default_bank_account", banking.get("previous_default_bank"))
 	for mode in banking.get("modes_added") or []:
 		frappe.db.delete("Mode of Payment Account", {"parent": mode, "company": company})
+	frappe.db.commit()
+
+
+def restore_gst_settings(run: Run):
+	"""Put back the GST Settings values setup changed (see setup.company.enable_sez)."""
+	for field, value in (run.params.get("gst_settings") or {}).items():
+		frappe.db.set_single_value("GST Settings", field, value)
 	frappe.db.commit()
 
 
@@ -174,6 +184,16 @@ def delete_registered(run: Run, log=print) -> list[str]:
 			run.set_record_state(record_name, "Deleted")
 	frappe.db.commit()
 	return kept
+
+
+def safety_backup(log=print):
+	"""Back up the site before removing demo data from the user's own company (wizard
+	mode), as bench drop-site and uninstall-app do; skipped with --no-backup."""
+	from frappe.utils.backups import scheduled_backup
+
+	log("Backing up the site first, since the demo data is in your own company (skip with --no-backup)")
+	odb = scheduled_backup(ignore_files=True, ignore_conf=True, force=True)
+	log(f"Backup: {odb.backup_path_db}")
 
 
 def release_company_links(company: str, log=print):

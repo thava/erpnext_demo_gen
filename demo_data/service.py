@@ -341,6 +341,15 @@ def write_plan(run: Run, pack: dict, log=print) -> dict:
 		)
 	wctx = WriteContext.for_run(run, pack, plan_start(run))
 	stats = ApiWriter(run, wctx, log=log).execute(plan)
+	if stats["transient"]:
+		# A database conflict outlasted the writer's retries (F-34). One more pass, as a
+		# resume would, often writes those steps and the ones depending on them. It cannot
+		# help a step whose order mattered (e.g. a partial delivery already shipped by a
+		# later one); such a step stays failed and is reported. Other failures would only
+		# repeat, so they are not retried.
+		log(f"Retrying {stats['failed']} failed step(s) and {stats['skipped']} skipped after them, once")
+		again = ApiWriter(run, wctx, log=log).execute(plan)
+		stats.update(failed=again["failed"], skipped=again["skipped"], created=stats["created"] + again["created"])
 	log(
 		f"Wrote {stats['created']} new, reused {stats['reused']}, {stats['already']} already present, "
 		f"{stats['failed']} failed, {stats['skipped']} skipped in {stats['seconds']}s"
@@ -401,7 +410,9 @@ def legacy_events(r) -> list[dict]:
 
 
 # ---------------------------------------------------------------- uninstall
-def uninstall(run_name: str | None = None, log=print, registry_only: bool = False) -> Run:
+def uninstall(
+	run_name: str | None = None, log=print, registry_only: bool = False, no_backup: bool = False
+) -> Run:
 	from demo_data.uninstall import uninstall_run
 
 	if not run_name:
@@ -414,7 +425,7 @@ def uninstall(run_name: str | None = None, log=print, registry_only: bool = Fals
 	run = Run(run_name)
 	if run.doc.status == "Uninstalled":
 		raise DemoDataError(f"{run.name} is already uninstalled")
-	uninstall_run(run, log=log, registry_only=registry_only)
+	uninstall_run(run, log=log, registry_only=registry_only, no_backup=no_backup)
 	return run
 
 

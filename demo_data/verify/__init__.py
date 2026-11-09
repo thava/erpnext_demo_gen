@@ -193,16 +193,22 @@ def check_tax_rows(ctx) -> Check:
 	"""GST rows match the company's registration.
 
 	Registered (F-16): every submitted sale and every purchase from a GST-registered
-	supplier carries GST rows. Unregistered (--no-gst): sales carry none, and those
+	supplier carries GST rows, except zero-rated SEZ and export supplies made without
+	GST (under a bond). Unregistered (--no-gst): sales carry none, and those
 	purchases carry GST as part of cost ("Valuation and Total"), since no credit can
 	be claimed.
 	"""
 	registered = ctx.run.params.get("gst", "registered") == "registered"
 	wrong = []
 	sales_rows = "exists" if registered else "not exists"
+	# SEZ and export supplies are zero-rated: without "export with GST" (supply under a
+	# bond, LUT) they rightly carry no GST rows, so the registered check skips them
+	zero_rated = (
+		"and not (d.gst_category in ('SEZ', 'Overseas') and ifnull(d.is_export_with_gst, 0) = 0)" if registered else ""
+	)
 	for doctype in ("Quotation", "Sales Order", "Sales Invoice"):
 		wrong += frappe.db.sql_list(
-			f"""select d.name from `tab{doctype}` d where d.company=%s and d.docstatus=1
+			f"""select d.name from `tab{doctype}` d where d.company=%s and d.docstatus=1 {zero_rated}
 			and not {sales_rows} (select 1 from `tabSales Taxes and Charges` t where t.parent=d.name)""",
 			(ctx.company,),
 		)

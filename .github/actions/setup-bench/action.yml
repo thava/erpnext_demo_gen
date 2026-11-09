@@ -1,0 +1,20 @@
+name: Set up bench
+description: Python, Node, system packages, then a Frappe v16 bench with erpnext, india_compliance, this app and a site (ci.localhost)
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.14"
+    - uses: actions/setup-node@v5
+      with:
+        node-version: "24"
+    - name: System packages
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq libmariadb-dev pkg-config mariadb-client
+        npm install -g yarn
+    - name: Bench, apps and site
+      shell: bash
+      run: bash "$GITHUB_WORKSPACE/.github/ci/setup-bench.sh"

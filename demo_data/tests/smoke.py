@@ -64,6 +64,7 @@ def snapshot() -> dict:
 	counts = {dt: frappe.db.count(dt) for dt in WATCHED}
 	counts["default company"] = frappe.db.get_single_value("Global Defaults", "default_company")
 	counts["demo company"] = frappe.db.get_single_value("Global Defaults", "demo_company")
+	counts["SEZ/overseas enabled"] = frappe.db.get_single_value("GST Settings", "enable_overseas_transactions")
 	return counts
 
 
@@ -95,7 +96,7 @@ def run(
 	for c in checks:
 		print(f"  {'ok  ' if c.ok else 'FAIL'} {c.name}: {c.detail}")
 
-	service.uninstall(run_doc.name, registry_only=registry_only)
+	service.uninstall(run_doc.name, registry_only=registry_only, no_backup=True)
 	after = snapshot()
 	changed = {k: (before[k], after[k]) for k in before if before[k] != after[k]}
 	if changed:

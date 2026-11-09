@@ -132,6 +132,7 @@ def setup_company(run: Run, pack: dict) -> str:
 		ensure_no_itc_templates(run, company, abbr)
 
 	setup_banking(run, company, abbr, pack)
+	enable_sez(run, pack)
 
 	set_defaults(run, company)
 	return company
@@ -275,6 +276,22 @@ def setup_banking(run: Run, company: str, abbr: str, pack: dict):
 			doc.save()
 			banking["modes_added"] = sorted({*banking["modes_added"], mode})
 	run.update_params(banking=banking)
+	frappe.db.commit()
+
+
+def enable_sez(run: Run, pack: dict):
+	"""SEZ customers need GST Settings' "Enable SEZ / Overseas Transactions", as a real
+	business with SEZ customers would have; india_compliance refuses their orders
+	otherwise. A site-wide setting, so the previous value is recorded and uninstall
+	restores it. Not needed without GST (--no-gst plans no SEZ customers)."""
+	if not pack["behavior"]["gst_categories"].get("sez") or run.params.get("gst") == "unregistered":
+		return
+	if "gst_settings" in run.params:
+		return  # recorded on a previous attempt
+	previous = frappe.db.get_single_value("GST Settings", "enable_overseas_transactions")
+	run.update_params(gst_settings={"enable_overseas_transactions": previous})
+	if not previous:
+		frappe.db.set_single_value("GST Settings", "enable_overseas_transactions", 1)
 	frappe.db.commit()
 
 

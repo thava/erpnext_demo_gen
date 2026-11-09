@@ -7,7 +7,9 @@
     demo-data status
     demo-data history [--run DD-RUN-00001] [--limit 10]
     demo-data verify [--run DD-RUN-00001]
-    demo-data uninstall [--run DD-RUN-00001] [--registry-only]
+    demo-data uninstall [--run DD-RUN-00001] [--registry-only] [--no-backup]
+    demo-data snapshot build --pack furniture_store [--size small] [--seed N]
+    demo-data snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
 
 Thin wrappers over demo_data.service (M-13).
 """
@@ -260,9 +262,14 @@ def _duration(seconds: float) -> str:
 
 def _log(message: str):
 	"""Echo with a timestamp, so each step shows when it happened."""
+	import datetime
+
+	import frappe
 	from frappe.utils import now_datetime
 
-	click.echo(f"{now_datetime():%Y-%m-%d %H:%M:%S}  {message}")
+	# the site's time zone when connected; snapshot commands run without a site
+	when = now_datetime() if getattr(frappe.local, "conf", None) and frappe.db else datetime.datetime.now()
+	click.echo(f"{when:%Y-%m-%d %H:%M:%S}  {message}")
 
 
 def _took(run) -> str:
@@ -317,8 +324,13 @@ def verify(context, run_name):
 	is_flag=True,
 	help="Remove transactions one by one from the registry (tier A) even for a company the run created",
 )
+@click.option(
+	"--no-backup",
+	is_flag=True,
+	help="Skip the site backup taken before removing demo data from your own company (--use-wizard-company)",
+)
 @pass_context
-def uninstall(context, run_name, yes, registry_only):
+def uninstall(context, run_name, yes, registry_only, no_backup):
 	"""Remove a run's demo company, its transactions and everything it created."""
 	from demo_data import service
 
@@ -328,10 +340,70 @@ def uninstall(context, run_name, yes, registry_only):
 		target = run_name or ", ".join(f"{r.name} ({r.company})" for r in active_runs()) or "nothing"
 		if not yes:
 			click.confirm(f"Delete demo data of {target}?", abort=True)
-		run = service.uninstall(run_name, log=_log, registry_only=registry_only)
+		run = service.uninstall(run_name, log=_log, registry_only=registry_only, no_backup=no_backup)
 		_log(f"{run.name} uninstalled{_took(run)}")
 
 	_run(context, go)
+
+
+# ---------------------------------------------------------------- snapshots
+@demo_data.group("snapshot")
+def snapshot():
+	"""Build a demo snapshot, or create a new site from one (no site needed)."""
+
+
+ROOT_PASSWORD = click.option(
+	"--db-root-password",
+	prompt="MariaDB root password",
+	hide_input=True,
+	help="Needed to create the site, as for bench new-site",
+)
+HOST_SCOPE = click.option(
+	"--mariadb-user-host-login-scope",
+	"host_scope",
+	help="As for bench new-site; '%' when MariaDB runs in Docker",
+)
+
+
+def _snapshot_run(fn):
+	from demo_data.snapshot import SnapshotError
+
+	try:
+		return fn()
+	except SnapshotError as e:
+		raise click.ClickException(str(e)) from e
+
+
+@snapshot.command("build")
+@click.option("--pack", required=True, help="Pack id (see list-packs)")
+@click.option("--size", default="small", show_default=True, type=click.Choice(SIZES))
+@click.option("--seed", default=1, show_default=True, type=int)
+@click.option("--end-date", help="Last day of generated data (default: today)")
+@click.option("--out", "out_dir", help="Folder for the snapshot (default: <bench>/demo-snapshots)")
+@ROOT_PASSWORD
+@HOST_SCOPE
+def snapshot_build(pack, size, seed, end_date, out_dir, db_root_password, host_scope):
+	"""Build a snapshot on a throwaway site: wizard, install, verify, back up, drop."""
+	from demo_data import snapshot as snap
+
+	def go():
+		path = snap.build(pack, size, seed, end_date, db_root_password, host_scope, out_dir, log=_log)
+		_log(f"Snapshot ready: {path} (and its .json manifest)")
+
+	_snapshot_run(go)
+
+
+@snapshot.command("new-site")
+@click.argument("name")
+@click.argument("dump")
+@click.option("--admin-password", help="Administrator password for the new site (default: changeme)")
+@ROOT_PASSWORD
+@HOST_SCOPE
+def snapshot_new_site(name, dump, admin_password, db_root_password, host_scope):
+	"""Create a new site NAME from a snapshot DUMP (.sql.gz with its .json manifest)."""
+	from demo_data import snapshot as snap
+
+	_snapshot_run(lambda: snap.new_site(name, snap.find_file(dump), admin_password, db_root_password, host_scope, log=_log))
 
 
 commands = [demo_data]

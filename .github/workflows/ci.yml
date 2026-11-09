@@ -1,0 +1,134 @@
+name: CI
+
+# Every push and pull request: unit tests and a micro smoke test per pack (install,
+# verify, uninstall, compare table counts). Nightly: Small snapshots for both packs
+# too. Weekly or on request: one Medium snapshot, electrical_distributor in even ISO
+# weeks and furniture_store in odd ones. Every snapshot a run builds is restored on
+# a new site and verified, then kept as a build artifact. A failure means ERPNext,
+# india_compliance or this app has drifted (requirement M-13).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "30 20 * * *" # nightly, 02:00 IST: tests and Small snapshots
+    - cron: "30 21 * * 6" # weekly, Sunday 03:00 IST: one Medium snapshot as well
+  workflow_dispatch:
+    inputs:
+      snapshots:
+        description: Snapshots to build after the tests
+        type: choice
+        default: none
+        options: [none, small, small+medium]
+      medium_pack:
+        description: Pack for the Medium snapshot (this week's alternates by ISO week)
+        type: choice
+        default: this-week
+        options: [this-week, furniture_store, electrical_distributor]
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DB_ROOT_PASSWORD: root
+  BENCH: /home/runner/frappe-bench
+
+jobs:
+  tests:
+    name: Unit and smoke tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-bench
+      - name: Unit tests
+        working-directory: ${{ env.BENCH }}
+        run: bench --site ci.localhost run-tests --app demo_data
+      - name: Smoke test, furniture_store micro
+        working-directory: ${{ env.BENCH }}
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" furniture_store micro 1
+      - name: Smoke test, electrical_distributor micro
+        working-directory: ${{ env.BENCH }}
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" electrical_distributor micro 1
+
+  snapshots:
+    name: Snapshots
+    needs: tests
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.snapshots != 'none')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-bench
+      - name: Small snapshots
+        working-directory: ${{ env.BENCH }}
+        run: |
+          for pack in furniture_store electrical_distributor; do
+            bench demo-data snapshot build --pack "$pack" --size small \
+              --db-root-password "$DB_ROOT_PASSWORD" --mariadb-user-host-login-scope '%'
+          done
+      - name: Medium snapshot
+        if: github.event.schedule == '30 21 * * 6' || inputs.snapshots == 'small+medium'
+        working-directory: ${{ env.BENCH }}
+        env:
+          MEDIUM_PACK: ${{ inputs.medium_pack || 'this-week' }}
+        run: |
+          pack="$MEDIUM_PACK"
+          if [ "$pack" = this-week ]; then
+            # alternate by ISO week: even -> electrical_distributor, odd -> furniture_store
+            week=$(date -u +%V)
+            if [ $((10#$week % 2)) -eq 0 ]; then pack=electrical_distributor; else pack=furniture_store; fi
+          fi
+          echo "Medium snapshot for $pack (ISO week $(date -u +%V))"
+          bench demo-data snapshot build --pack "$pack" --size medium \
+            --db-root-password "$DB_ROOT_PASSWORD" --mariadb-user-host-login-scope '%'
+      - name: Restore check
+        working-directory: ${{ env.BENCH }}
+        run: |
+          # restore every snapshot built above on a new site (snapshot new-site runs verify)
+          n=0
+          for dump in demo-snapshots/*.sql.gz; do
+            n=$((n + 1))
+            site="restore-check-$n.localhost"
+            echo "::group::$dump"
+            bench demo-data snapshot new-site "$site" "$PWD/$dump" \
+              --admin-password restore-check --db-root-password "$DB_ROOT_PASSWORD" \
+              --mariadb-user-host-login-scope '%'
+            bench purge-jobs --site "$site" || true   # no worker in CI (F-30)
+            bench drop-site "$site" --db-root-password "$DB_ROOT_PASSWORD" --no-backup --force
+            echo "::endgroup::"
+          done
+      - uses: actions/upload-artifact@v6
+        with:
+          name: demo-snapshots-${{ github.run_number }}
+          path: ${{ env.BENCH }}/demo-snapshots/
+          retention-days: 14

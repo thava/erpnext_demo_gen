@@ -23,7 +23,9 @@ bench --site <site> demo-data install --pack furniture_store [--size micro|small
 bench --site <site> demo-data status                          # what is installed now
 bench --site <site> demo-data history [--run DD-RUN-00001]     # install/uninstall events, newest first
 bench --site <site> demo-data verify [--run DD-RUN-00001]      # exits 1 if a check fails
-bench --site <site> demo-data uninstall [--run DD-RUN-00001] [--registry-only] [--yes]
+bench --site <site> demo-data uninstall [--run DD-RUN-00001] [--registry-only] [--no-backup] [--yes]
+bench demo-data snapshot build --pack furniture_store [--size small]   # see Snapshots
+bench demo-data snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
 ```
 
 - Demo data goes into its own Company, made the default and registered as ERPNext's
@@ -186,6 +188,51 @@ won and lost, orders, deliveries, invoices paid, overdue, returned, cancelled an
 left in draft, purchases, every payment mode, weekly bank transfers and bank
 reconciliation): the planner checks this for every size and adjusts a few documents
 when a small run would miss something.
+
+## Reading the reports
+
+- **Stock Balance shows fewer rows than the pack has items.** The report leaves out items
+  with no stock in the chosen warehouses and dates. A demo ends with one or two
+  fast-selling items sold out, as real shops do, so a Medium run with 250 stock items
+  typically shows 248 or 249 rows. Tick the report's "Include Zero Stock Items" filter
+  to see every item.
+
+## Snapshots
+
+A snapshot is a ready-made demo site: a database dump plus a manifest. Restoring
+one takes about 15 seconds, against minutes or hours for a live install. A snapshot
+site is disposable: explore it, then drop it with `bench drop-site`.
+
+```bash
+# build (on a throwaway site: setup wizard, install, verify, back up, drop)
+bench demo-data snapshot build --pack furniture_store --size small \
+      --db-root-password ... [--mariadb-user-host-login-scope '%']
+
+# create a new site from it
+bench demo-data snapshot new-site mydemo.localhost demo-snapshots/demo-furniture_store-small-...sql.gz \
+      --admin-password ... --db-root-password ... [--mariadb-user-host-login-scope '%']
+```
+
+- Snapshots are written to `<bench>/demo-snapshots/`: `demo-<pack>-<size>-s<seed>-f<frappe>-e<erpnext>-ic<india_compliance>-dd<demo_data>-<date>.sql.gz`
+  and a `.json` manifest beside it (pack, seed, data period, app versions and commits,
+  document counts, checksum).
+- The site has one company, the demo company, and one user, Administrator. Its
+  password is **`changeme`** unless you set one with `--admin-password`. The data is
+  fictional and open; dumps are not encrypted.
+- `snapshot new-site` checks the checksum and versions first. A snapshot from an
+  older release of the same major version is restored and then migrated. One from a
+  newer release, or another major version, is refused: build a snapshot on this
+  bench instead. It never touches an existing site.
+- The dump is a standard Frappe backup, so Frappe's own commands work too:
+  `bench new-site NAME --source-sql /absolute/path/to/dump.sql.gz` (the path must be
+  absolute) or `bench --site NAME restore dump.sql.gz`. Frappe keeps the snapshot's
+  Administrator password `changeme` on restore even when `--admin-password` is
+  passed; change it with `bench --site NAME set-admin-password`.
+- The data ends on the build date; the build date and data period are printed on
+  restore.
+
+`demo-data uninstall` with `--use-wizard-company` (demo data in your own company)
+backs up the site first, as `bench drop-site` does; skip it with `--no-backup`.
 
 ## Development
 

@@ -97,17 +97,45 @@ def resolve(value, done: dict):
 	return value
 
 
-RETRIES = 6  # waits 2, 4, 8, 16 and 32 s between attempts (about a minute in all)
+RETRIES = 8  # waits 2, 4, ... 128 s between attempts (about 4 minutes in all)
 
 
 def is_transient(error: Exception) -> bool:
-	"""Errors where MariaDB aborted the transaction because of another connection
-	(deadlock, lock wait timeout, or "Record has changed since last read", 1020);
-	the same document usually succeeds when written again."""
-	if frappe.db.is_deadlocked(error) or frappe.db.is_timedout(error):
+	"""Errors where MariaDB aborted the transaction because of another connection:
+	deadlock (1213), lock wait timeout (1205), or "Record has changed since last
+	read" (1020, snapshot isolation); the same document usually succeeds when written
+	again.
+
+	Frappe raises these as QueryDeadlockError / QueryTimeoutError wrapping the driver's
+	error, so the code is on the wrapped error, not on the wrapper (F-34).
+	"""
+	if isinstance(error, (frappe.QueryDeadlockError, frappe.QueryTimeoutError)):
 		return True
-	args = getattr(error, "args", ())
-	return bool(args) and args[0] == 1020
+	seen = set()
+	while error is not None and id(error) not in seen:
+		seen.add(id(error))
+		args = getattr(error, "args", ())
+		if args and isinstance(args[0], int) and args[0] in (1020, 1205, 1213):
+			return True
+		error = args[0] if args and isinstance(args[0], BaseException) else error.__cause__
+	return False
+
+
+def connection_report() -> str:
+	"""Other connections to this database (and what they run), recorded when a
+	conflict outlasts every retry, to identify what keeps changing the rows (F-34)."""
+	try:
+		rows = frappe.db.sql(
+			# without the PROCESS privilege this lists the site user's own connections,
+			# which are the ones that matter: workers and scheduler use the same user
+			"""select id, command, time, state, left(info, 200) query
+			from information_schema.processlist
+			where db = database() and id != connection_id()""",
+			as_dict=True,
+		)
+	except Exception as e:
+		return f"connection report unavailable: {e}"
+	return "Other connections on this database:\n" + "\n".join(f"  {dict(r)}" for r in rows) if rows else "No other connections on this database"
 
 
 class ApiWriter:
@@ -122,7 +150,7 @@ class ApiWriter:
 	def __init__(self, run: Run, wctx: WriteContext, max_failures: int | None = None, log=print):
 		self.run, self.wctx, self.log = run, wctx, log
 		self.max_failures = max_failures
-		self.stats = {"created": 0, "reused": 0, "failed": 0, "skipped": 0, "already": 0, "retried": 0}
+		self.stats = {"created": 0, "reused": 0, "failed": 0, "skipped": 0, "already": 0, "retried": 0, "transient": 0}
 
 	def build(self, pd: PlannedDoc, done: dict):
 		from demo_data.writers import builders
@@ -135,8 +163,12 @@ class ApiWriter:
 				frappe.local.message_log = []
 				if attempt < RETRIES and is_transient(e):
 					self.stats["retried"] += 1
+					if attempt == 4:
+						self.log(f"  {pd.key}: database conflict persists ({e.args[0] if e.args else e}); still retrying")
 					time.sleep(2**attempt)
 					continue
+				if is_transient(e):
+					e.demo_diagnostics = connection_report()
 				raise
 
 	def execute(self, plan: list[PlannedDoc]):
@@ -167,10 +199,12 @@ class ApiWriter:
 					pd.doctype,
 					None,
 					"Failed",
-					f"{type(e).__name__}: {e}\n{traceback.format_exc(limit=4)}",
+					f"{type(e).__name__}: {e}\n{traceback.format_exc(limit=4)}"
+					+ (f"\n{e.demo_diagnostics}" if getattr(e, "demo_diagnostics", None) else ""),
 				)
 				frappe.db.commit()
 				self.stats["failed"] += 1
+				self.stats["transient"] += int(is_transient(e))
 				self.log(f"  failed {pd.key}: {type(e).__name__}: {str(e)[:200]}")
 				if self.stats["failed"] > max_failures:
 					raise WriterAborted(
