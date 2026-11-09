@@ -21,8 +21,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from demo_data.planner import Plan, ref
-from demo_data.planner.masters import TERM_DAYS, weighted
+from demo_data.planner import Plan, ref, weighted
+from demo_data.planner.masters import TERM_DAYS
 
 # order of stages within one day
 STAGE = {
@@ -73,7 +73,8 @@ class ItemInfo:
 	key: str
 	sell: float
 	buy: float
-	gst: float
+	tax_rate: float  # percent charged on sales, from the locale
+	purchase_tax_rate: float  # percent the supplier charges on stock bought for resale
 	reorder_min: int
 	reorder_max: int
 	supplier: str | None
@@ -120,15 +121,16 @@ def month_starts(start: date, end: date) -> list[date]:
 
 
 def spread_over_months(
-	total: int, start: date, end: date, seasonality: list[float]
+	total: int, start: date, end: date, seasonality: list[float], first_month: int = 4
 ) -> list[tuple[date, date, int]]:
-	"""[(first_day, last_day, count)] per month in range, weighted by seasonality (index 0 = April)."""
+	"""[(first_day, last_day, count)] per month in range, weighted by seasonality
+	(index 0 = first_month: the locale's fiscal year start; India: April)."""
 	spans = []
 	for m in month_starts(start, end):
 		next_m = date(m.year + (m.month == 12), m.month % 12 + 1, 1)
 		first, last = max(m, start), min(next_m - timedelta(days=1), end)
 		share = (days_between(first, last) + 1) / (days_between(m, next_m))
-		spans.append((first, last, seasonality[(m.month - 4) % 12] * share))
+		spans.append((first, last, seasonality[(m.month - first_month) % 12] * share))
 	weight_total = sum(w for _, _, w in spans) or 1
 	exact = [total * w / weight_total for _, _, w in spans]
 	counts = [int(x) for x in exact]
@@ -139,15 +141,15 @@ def spread_over_months(
 	return [(f, last, c) for (f, last, _), c in zip(spans, counts, strict=True)]
 
 
-def random_dates(rng, total, start, end, seasonality) -> list[date]:
+def random_dates(rng, total, start, end, seasonality, first_month: int = 4) -> list[date]:
 	out = []
-	for first, last, count in spread_over_months(total, start, end, seasonality):
+	for first, last, count in spread_over_months(total, start, end, seasonality, first_month):
 		out += [first + timedelta(days=rng.randint(0, days_between(first, last))) for _ in range(count)]
 	return sorted(out)
 
 
-def with_tax(amount: float, gst: float) -> float:
-	return amount * (1 + gst / 100)
+def with_tax(amount: float, rate: float) -> float:
+	return amount * (1 + rate / 100)
 
 
 # ---------------------------------------------------------------- entry point
@@ -181,7 +183,8 @@ def read_items(plan: Plan) -> dict[str, ItemInfo]:
 				key=d.key,
 				sell=prices[("selling", d.key)],
 				buy=prices[("buying", d.key)],
-				gst=p["gst_rate"],
+				tax_rate=plan.ctx.locale.item_tax_rate(p),
+				purchase_tax_rate=plan.ctx.locale.purchase_tax_rate(p),
 				reorder_min=p["reorder"]["min"],
 				reorder_max=p["reorder"]["max"],
 				supplier=p["suppliers"][0]["$ref"] if p["suppliers"] else None,
@@ -210,7 +213,7 @@ def plan_sales(ctx, tl: Timeline, items: dict[str, ItemInfo], customers, terms_d
 		walk_in = next((c for c in members if c.key == "M:customer:walk-in"), None)
 		named = [c for c in members if c is not walk_in]
 		named_weights = [w for c, w in zip(members, weights, strict=True) if c is not walk_in]
-		dates = random_dates(rng, count, ctx.start_date, ctx.end_date, seasonality)
+		dates = random_dates(rng, count, ctx.start_date, ctx.end_date, seasonality, ctx.locale.season_start_month)
 
 		def pick_customer(walk_in=walk_in, named=named, named_weights=named_weights):
 			if walk_in and (not named or rng.random() < 0.5):
@@ -244,8 +247,8 @@ def credit_days(rng, channel, customer, terms_days) -> int:
 	return TERM_DAYS.get(term, 0)
 
 
-def amount_of(lines, items, rate_field="sell", gst=True) -> float:
-	return sum(with_tax(getattr(items[k], rate_field) * q, items[k].gst if gst else 0) for k, q in lines)
+def amount_of(lines, items, rate_field="sell", taxed=True) -> float:
+	return sum(with_tax(getattr(items[k], rate_field) * q, items[k].tax_rate if taxed else 0) for k, q in lines)
 
 
 def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, items, terms_days):
@@ -275,7 +278,7 @@ def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, 
 	for s in sales:
 		key = tl.next_key("SI")
 		lines = [{"item": ref(k), "qty": q, "rate": items[k].sell} for k, q in s["lines"]]
-		amount = amount_of(s["lines"], items, gst=False)  # shelf prices include GST
+		amount = amount_of(s["lines"], items, taxed=not ctx.locale.prices_include_tax)  # India: shelf prices include GST
 		draft = bool(s.get("draft"))
 		tl.add(
 			Event(
@@ -320,7 +323,7 @@ def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, 
 						"refund",
 						# refunded the way it was paid
 						{"credit_note": ref(rkey), **refund_method(ctx, paid_now, rdate)},
-						amount=amount_of([(k, 1)], items, gst=False),  # one unit at the shelf price
+						amount=amount_of([(k, 1)], items, taxed=not ctx.locale.prices_include_tax),  # one unit at the shelf price
 					)
 				)
 
@@ -370,7 +373,8 @@ def plan_order_flow(ctx, tl, rng, channel, dates, pick_customer, pick_lines, ite
 
 	# quotations that never became orders
 	lost = round(len(dates) * LOST_QUOTATION_SHARE) if with_quotation else 0
-	for q_date in random_dates(rng, lost, start, end, ctx.pack["behavior"]["seasonality"]["monthly_index"]):
+	seasonality = ctx.pack["behavior"]["seasonality"]["monthly_index"]
+	for q_date in random_dates(rng, lost, start, end, seasonality, ctx.locale.season_start_month):
 		customer = pick_customer()
 		lines = pick_lines(rng.randint(1, max_lines), qty_range)
 		tl.add(
@@ -441,7 +445,7 @@ def plan_delivery(ctx, tl, rng, so_key, dn_date, lines, fraction, items, days):
 				{"delivery_note": ref(dn_key), "credit_days": days},
 			)
 		)
-	plan_customer_payment(ctx, tl, rng, si_key, dn_date, amount_of(lines, items, gst=ctx.sales_gst), days)
+	plan_customer_payment(ctx, tl, rng, si_key, dn_date, amount_of(lines, items, taxed=ctx.sales_tax), days)
 
 
 def reconciled_until(end: date) -> date:
@@ -449,28 +453,35 @@ def reconciled_until(end: date) -> date:
 	return end.replace(day=1) - timedelta(days=1)
 
 
-COLLECTED_AT_COUNTER = ("UPI", "Card")  # the counter's UPI QR and card terminal pay into the collection account
+def counter_modes(pack: dict | None = None) -> tuple[str, ...]:
+	"""Modes the pack's locale collects at the counter (the default locale's without a pack)."""
+	from demo_data.locales import get_locale
+
+	return get_locale(pack).counter_modes
 
 
-def mode_name(banking: dict, mode: str, account: str) -> str:
-	"""The Mode of Payment name: UPI and card carry the receiving bank ("UPI - ICICI"),
-	since ERPNext maps a mode to one account per company; others are ERPNext's own."""
-	if mode in COLLECTED_AT_COUNTER:
+def mode_name(banking: dict, mode: str, account: str, collected_at_counter=None) -> str:
+	"""The Mode of Payment name: modes the counter collects carry the receiving bank
+	("UPI - ICICI"), since ERPNext maps a mode to one account per company; others are
+	ERPNext's own."""
+	if mode in (counter_modes() if collected_at_counter is None else collected_at_counter):
 		return f"{mode} - {banking[account]['short']}"
 	return mode
 
 
-def planned_mode_names(banking: dict) -> set[str]:
+def planned_mode_names(banking: dict, collected_at_counter=None) -> set[str]:
+	collected_at_counter = counter_modes() if collected_at_counter is None else collected_at_counter
 	return {
-		mode_name(banking, mode, account_for(payer, mode))
+		mode_name(banking, mode, account_for(payer, mode, collected_at_counter), collected_at_counter)
 		for payer, shares in banking["modes"].items()
 		for mode, share in shares.items()
 		if share
 	}
 
 
-def account_for(payer: str, mode: str) -> str:
-	return "collection" if payer == "counter" and mode in COLLECTED_AT_COUNTER else "main"
+def account_for(payer: str, mode: str, collected_at_counter=None) -> str:
+	collected_at_counter = counter_modes() if collected_at_counter is None else collected_at_counter
+	return "collection" if payer == "counter" and mode in collected_at_counter else "main"
 
 
 def payment_method(ctx, payer: str, amount: float, when: date, mode: str | None = None) -> dict:
@@ -482,25 +493,20 @@ def payment_method(ctx, payer: str, amount: float, when: date, mode: str | None 
 	"""
 	rng = ctx.__dict__.setdefault("_payment_rng", ctx.rng("payment-methods"))
 	banking = ctx.pack["banking"]
+	locale = ctx.locale
 	if mode is None:
 		mode = weighted(rng, banking["modes"][payer])
-		if mode == "UPI" and amount > banking["upi_limit"]:
-			mode = "Wire Transfer"
+		limit = locale.mode_limit(mode, banking)
+		if limit is not None and amount > limit:
+			mode = locale.over_limit_mode(mode)
 	if mode == "Cash":
 		return {"mode": "Cash", "account": "cash"}
-	account = account_for(payer, mode)
-	bank = banking[account]
-	if mode == "Cheque":
-		reference = f"{rng.randint(100000, 999999)}"
-	elif mode == "Wire Transfer":  # NEFT/RTGS UTR: bank code, N or R, date, serial
-		kind = "R" if amount >= banking["rtgs_from"] else "N"
-		reference = f"{bank['ifsc_prefix']}{kind}{when:%y%m%d}{rng.randint(10**7, 10**8 - 1)}"
-	else:  # UPI and card: 12-digit RRN
-		reference = f"{when:%y}{rng.randint(10**9, 10**10 - 1)}"
+	account = account_for(payer, mode, locale.counter_modes)
+	reference = locale.payment_reference(rng, mode, amount, when, banking[account], banking)
 	low, high = banking["clearing_days"][mode]
 	clears = when + timedelta(days=rng.randint(low, high))
 	return {
-		"mode": mode_name(banking, mode, account),
+		"mode": mode_name(banking, mode, account, locale.counter_modes),
 		"account": account,
 		"reference": reference,
 		"clearance_date": clears if clears <= reconciled_until(ctx.end_date) else None,
@@ -522,6 +528,7 @@ def ensure_payment_modes(ctx, tl: Timeline):
 	mode (the refund goes back the same way). Larger sizes are rarely touched.
 	"""
 	banking = ctx.pack["banking"]
+	collected = ctx.locale.counter_modes
 	refunded = {e.params["against"]["$ref"] for e in tl.events if e.builder == "sales_return"}
 
 	def payer(e):
@@ -533,19 +540,20 @@ def ensure_payment_modes(ctx, tl: Timeline):
 	used = {e.params["mode"] for e in payments}
 	for who, shares in banking["modes"].items():
 		for mode, share in shares.items():
-			name = mode_name(banking, mode, account_for(who, mode))
+			name = mode_name(banking, mode, account_for(who, mode, collected), collected)
 			if not share or name in used:
 				continue
+			limit = ctx.locale.mode_limit(mode, banking)
 			fits = [
 				e
 				for e in payments
 				if payer(e) == who
 				and e.params["invoice"]["$ref"] not in refunded
-				and (mode != "UPI" or e.amount <= banking["upi_limit"])
+				and (limit is None or e.amount <= limit)
 				and sum(p.params["mode"] == e.params["mode"] for p in payments) > 1  # keep the old mode in use
 			]
-			if not fits and mode == "UPI" and who == "customer":
-				split_by_upi(ctx, tl, payments, refunded)
+			if not fits and limit is not None and who == "customer":
+				split_by_limit(ctx, tl, payments, refunded, mode, limit)
 				used.add(name)
 				continue
 			if not fits:
@@ -560,10 +568,10 @@ def ensure_payment_modes(ctx, tl: Timeline):
 			used.add(name)
 
 
-def split_by_upi(ctx, tl: Timeline, payments: list, refunded: set):
-	"""Every credit payment is above the UPI limit: the smallest one is split, part paid
-	by UPI first on the same day (under the limit), the rest the usual way."""
-	limit = ctx.pack["banking"]["upi_limit"]
+def split_by_limit(ctx, tl: Timeline, payments: list, refunded: set, mode: str, limit: float):
+	"""Every credit payment is above the mode's limit (India: UPI): the smallest one is
+	split, part paid by that mode first on the same day (under the limit), the rest the
+	usual way."""
 	whole = [
 		e
 		for e in payments
@@ -584,7 +592,7 @@ def split_by_upi(ctx, tl: Timeline, payments: list, refunded: set):
 			tl.next_key("PE"),
 			"Payment Entry",
 			"receive_payment",
-			{"invoice": e.params["invoice"], "fraction": fraction, **payment_method(ctx, "customer", part, e.date, "UPI")},
+			{"invoice": e.params["invoice"], "fraction": fraction, **payment_method(ctx, "customer", part, e.date, mode)},
 			order=e.order,
 			after=-1,  # just before the payment of the rest
 			bank=part,
@@ -628,10 +636,7 @@ def plan_bank_transfers(ctx, tl: Timeline):
 					receipts.append(key)
 				i += 1
 			if balance > 1 and receipts:
-				if source == "collection":
-					reference = f"{banking['collection']['ifsc_prefix']}N{when:%y%m%d}{rng.randint(10**7, 10**8 - 1)}"
-				else:
-					reference = f"DEP{when:%y%m%d}{rng.randint(100, 999)}"  # cash deposit slip
+				reference = ctx.locale.sweep_reference(rng, source, when, banking)
 				tl.add(
 					Event(
 						when,
@@ -773,7 +778,7 @@ def plan_stock_and_purchases(ctx, tl: Timeline, items: dict[str, ItemInfo]):
 				{"purchase_receipt": ref(pr_key), "bill_no": f"INV/{receipt_date.year % 100}/{pi_key[-5:]}"},
 			)
 		)
-		total = sum(with_tax(items[k].buy * q, items[k].gst) for k, q in lines)
+		total = sum(with_tax(items[k].buy * q, items[k].purchase_tax_rate) for k, q in lines)
 		due = receipt_date + timedelta(days=SUPPLIER_TERMS_DAYS)
 		pay = (
 			receipt_date + timedelta(days=rng.randint(SUPPLIER_TERMS_DAYS // 2, SUPPLIER_TERMS_DAYS))

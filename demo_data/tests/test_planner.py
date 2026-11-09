@@ -7,9 +7,9 @@ from demo_data.packs import load_pack
 from demo_data.planner import PlanContext, make_plan
 
 
-def plan(size="small", seed=1, home="Tamil Nadu", pack_id="furniture_store", sales_gst=True):
+def plan(size="small", seed=1, home="Tamil Nadu", pack_id="furniture_store", sales_tax=True):
 	pack = load_pack(pack_id)
-	ctx = PlanContext(pack, size, seed, home, dt.date(2025, 11, 9), dt.date(2026, 11, 8), sales_gst)
+	ctx = PlanContext(pack, size, seed, home, dt.date(2025, 11, 9), dt.date(2026, 11, 8), sales_tax)
 	return pack, make_plan(ctx)
 
 
@@ -86,7 +86,7 @@ class TestMasterPlan(UnitTestCase):
 
 	def test_unregistered_company_sells_only_in_home_state(self):
 		# inter-state and SEZ supplies need GST registration (--no-gst)
-		_, docs = plan(pack_id="electrical_distributor", home="Karnataka", sales_gst=False)
+		_, docs = plan(pack_id="electrical_distributor", home="Karnataka", sales_tax=False)
 		customers = [d.params for d in docs if d.doctype == "Customer"]
 		self.assertTrue(all(p["address"]["state"] == "Karnataka" for p in customers if p.get("address")))
 		self.assertFalse(any(p.get("gst_category") == "SEZ" for p in customers))

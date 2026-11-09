@@ -6,10 +6,8 @@ terms, so the reverse walk removes dependants first.
 """
 
 from demo_data import naming
-from demo_data.india import geo
-from demo_data.india.gstin import make_gstin, make_pan
 from demo_data.packs import template_fields
-from demo_data.planner import Plan, PlanError, ref
+from demo_data.planner import Plan, PlanError, ref, weighted
 
 TERM_DAYS = {"net_15": 15, "net_30": 30, "net_45": 45, "net_60": 60}
 SUPPLIER_REGISTERED_SHARE = 0.9
@@ -46,12 +44,12 @@ def plan_item_groups(plan: Plan):
 
 
 # ---------------------------------------------------------------- parties
-def other_states(home: str) -> list[str]:
-	return [s for s in sorted(geo.CITIES) if s != home]
+def other_regions(locale, home: str) -> list[str]:
+	return [s for s in locale.regions() if s != home]
 
 
-def pick_state(rng, home: str, home_share: float) -> str:
-	return home if rng.random() < home_share else rng.choice(other_states(home))
+def pick_region(rng, locale, home: str, home_share: float) -> str:
+	return home if rng.random() < home_share else rng.choice(other_regions(locale, home))
 
 
 def unique_name(rng, make, taken: set[str], what: str) -> str:
@@ -64,49 +62,44 @@ def unique_name(rng, make, taken: set[str], what: str) -> str:
 
 
 def business_party(
-	rng, state: str, nouns: list[str], taken: set[str], registered: bool, category: str
+	rng, locale, region: str, nouns: list[str], taken: set[str], registered: bool, category: str
 ) -> dict:
-	name = unique_name(rng, lambda: naming.company_name(rng, nouns), taken, "business")
-	first, last = naming.person(rng, state)
-	pan = make_pan(rng, "company", name)
+	name = unique_name(rng, lambda: locale.business_name(rng, nouns), taken, "business")
+	first, last = locale.person(rng, region)
+	tax = locale.business_tax(rng, name, region, registered, category)  # draws before the address
 	return {
 		"name": name,
 		"type": "Company",
-		"gst_category": category if registered else "Unregistered",
-		"gstin": make_gstin(geo.state_code(state), pan) if registered else None,
-		"pan": None if registered else pan,
-		"address": geo.make_address(rng, state),
+		**tax,
+		"address": locale.address(rng, region),
 		"contact": {
 			"first_name": first,
 			"last_name": last,
 			"email": naming.email_for_business(name),
-			"mobile": naming.mobile(rng),
+			"mobile": locale.phone(rng),
 		},
 	}
 
 
 def plan_suppliers(plan: Plan) -> list[str]:
 	ctx, pack = plan.ctx, plan.ctx.pack
+	locale = ctx.locale
 	parties = pack["parties"]
 	rng = ctx.rng("suppliers")
 	taken: set[str] = set()
 	keys = []
 	for i in range(ctx.size["suppliers"]):
-		state = pick_state(rng, ctx.home_state, parties["supplier_home_state_share"])
+		region = pick_region(rng, locale, ctx.home_state, parties["supplier_home_state_share"])
 		registered = rng.random() < SUPPLIER_REGISTERED_SHARE
-		party = business_party(rng, state, parties["supplier_nouns"], taken, registered, "Registered Regular")
+		party = business_party(rng, locale, region, parties["supplier_nouns"], taken, registered, "Registered Regular")
 		party["group"] = parties["supplier_group"]
 		keys.append(plan.add(f"M:supplier:S{i + 1:04d}", "Supplier", "supplier", party))
 	return keys
 
 
-def weighted(rng, weights: dict):
-	keys = list(weights)
-	return rng.choices(keys, weights=[weights[k] for k in keys])[0]
-
-
 def plan_customers(plan: Plan):
 	ctx, pack = plan.ctx, plan.ctx.pack
+	locale = ctx.locale
 	parties, behavior = pack["parties"], pack["behavior"]
 	rng = ctx.rng("customers")
 	taken: set[str] = set()
@@ -128,9 +121,9 @@ def plan_customers(plan: Plan):
 				"name": "Walk-in Customer",
 				"type": "Individual",
 				"group": parties["customer_group"]["b2c"],
-				"gst_category": "Unregistered",
+				**locale.individual_tax(),
 				"channel": weighted(rng, b2c_channels),
-				"address": geo.make_address(rng, ctx.home_state),
+				"address": locale.address(rng, ctx.home_state),
 			},
 		)
 		taken.add("Walk-in Customer")
@@ -138,34 +131,27 @@ def plan_customers(plan: Plan):
 	for i in range(total):
 		key = f"M:customer:C{i + 1:04d}"
 		if i < n_b2c:
-			name = unique_name(rng, lambda: " ".join(naming.person(rng, ctx.home_state)), taken, "person")
+			name = unique_name(rng, lambda: " ".join(locale.person(rng, ctx.home_state)), taken, "person")
 			first, last = name.split(" ", 1)
 			params = {
 				"name": name,
 				"type": "Individual",
 				"group": parties["customer_group"]["b2c"],
-				"gst_category": "Unregistered",
+				**locale.individual_tax(),
 				"channel": weighted(rng, b2c_channels),
-				"address": geo.make_address(rng, ctx.home_state),
+				"address": locale.address(rng, ctx.home_state),
 				"contact": {
 					"first_name": first,
 					"last_name": last,
 					"email": naming.email_for_person(rng, first, last),
-					"mobile": naming.mobile(rng),
+					"mobile": locale.phone(rng),
 				},
 			}
 		else:
-			# An unregistered business cannot supply goods to other states or to SEZ units
-			# (both are inter-state supplies, which need GST registration at any turnover).
-			home_share = behavior["geography"]["home_state_share"] if ctx.sales_gst else 1.0
-			state = pick_state(rng, ctx.home_state, home_share)
-			category = weighted(rng, behavior["gst_categories"])
-			if category == "sez" and not ctx.sales_gst:
-				category = "registered"
-			gst_category = {"registered": "Registered Regular", "sez": "SEZ"}.get(category, "Unregistered")
-			params = business_party(
-				rng, state, parties["customer_nouns"], taken, category != "unregistered", gst_category
-			)
+			home_share = locale.customer_home_share(behavior, ctx.sales_tax)
+			region = pick_region(rng, locale, ctx.home_state, home_share)
+			registered, category = locale.customer_category(rng, behavior, ctx.sales_tax)
+			params = business_party(rng, locale, region, parties["customer_nouns"], taken, registered, category)
 			params["group"] = parties["customer_group"]["b2b"]
 			channel_id = weighted(rng, b2b_channels)
 			params["channel"] = channel_id
@@ -285,8 +271,7 @@ def plan_items(plan: Plan, families: list[tuple[dict, int]], suppliers: list[str
 					"name": name,
 					"group": ref(f"M:item_group:{family['group']}"),
 					"family": family["id"],
-					"hsn": str(family["hsn"]),
-					"gst_rate": family["gst_rate"],
+					**plan.ctx.locale.item_tax(family, plan.ctx.pack),
 					"uom": family.get("uom", "Nos"),
 					"cost": cost,
 					"reorder": family["reorder"],

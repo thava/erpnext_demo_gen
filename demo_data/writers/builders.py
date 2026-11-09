@@ -66,29 +66,6 @@ def _group(doctype: str, preferred: str) -> str:
 	return frappe.db.get_value(doctype, {"is_group": 0}) or get_root_of(doctype)
 
 
-def _party_fields(p) -> dict:
-	"""Fields india_compliance's party hooks use: GSTIN and category, and _address_line1 etc.
-	for the primary address its after_insert hook creates (F-25)."""
-	address = p.get("address") or {}
-	fields = {"gst_category": p.gst_category, "country": "India"}
-	if p.get("gstin"):
-		fields["gstin"] = p.gstin
-	elif p.get("pan"):
-		fields["pan"] = p.pan
-	if address:
-		fields.update(
-			{
-				"_address_line1": address["address_line1"],
-				"city": address["city"],
-				"state": address["state"],
-				"pincode": address["pincode"],
-				"is_primary_address": 1,
-				"is_shipping_address": 1,
-			}
-		)
-	return fields
-
-
 def _add_contact(party_doc, contact: dict | None):
 	"""A named contact person; ERPNext deletes it with the party (delete_contact_and_address)."""
 	if not contact:
@@ -122,7 +99,7 @@ def supplier(p, w, pd):
 				"supplier_name": p.name,
 				"supplier_type": p.type,
 				"supplier_group": _group("Supplier Group", p.group),
-				**_party_fields(p),
+				**w.locale.party_fields(p, w),
 			}
 		)
 	)
@@ -140,7 +117,7 @@ def customer(p, w, pd):
 				"customer_group": _group("Customer Group", p.group),
 				"territory": w.territory,
 				"payment_terms": p.get("payment_terms"),
-				**_party_fields(p),
+				**w.locale.party_fields(p, w),
 			}
 		)
 	)
@@ -166,9 +143,8 @@ def item(p, w, pd):
 				"stock_uom": p.uom,
 				"is_stock_item": 1,
 				"include_item_in_manufacturing": 0,
-				"gst_hsn_code": p.hsn,
 				"valuation_rate": p.cost,
-				"taxes": [{"item_tax_template": w.item_tax_template(p.gst_rate)}],
+				**w.locale.item_fields(p, w),
 				"item_defaults": [{"company": w.company, "default_warehouse": w.default_warehouse}],
 				"supplier_items": [{"supplier": s} for s in p.suppliers],
 				"reorder_levels": [
@@ -319,15 +295,7 @@ def purchase_order(p, w, pd):
 			}
 		)
 	doc.schedule_date = p.schedule_date
-	if w.gst_registered:
-		return _save(doc, pd, fill_taxes=True)
-	# Unregistered company: nothing picks a template (F-38), so select the no-ITC one
-	# by the supplier's state, as the user would; an unregistered supplier charges none.
-	from demo_data.setup.tax_templates import no_itc_template
-
-	gstin = frappe.db.get_value("Supplier", p.supplier, "gstin")
-	if gstin:
-		doc.taxes_and_charges = no_itc_template("In" if gstin[:2] == w.home_state_code else "Out", w.abbr)
+	w.locale.purchase_taxes(doc, w)  # India --no-gst: the no-ITC template (F-38)
 	return _save(doc, pd, fill_taxes=True)
 
 
@@ -369,6 +337,7 @@ def quotation(p, w, pd):
 			"items": _lines(p.lines, w),
 		}
 	)
+	w.locale.sales_taxes(doc, w)
 	return _save(doc, pd, fill_taxes=True)
 
 
@@ -397,6 +366,7 @@ def sales_order(p, w, pd):
 	for row in doc.items:
 		row.delivery_date = p.delivery_date
 		row.warehouse = row.warehouse or w.default_warehouse
+	w.locale.sales_taxes(doc, w)
 	return _save(doc, pd, fill_taxes=True)
 
 
@@ -447,7 +417,8 @@ def counter_sales_invoice(p, w, pd):
 	)
 	_dated(doc, pd)
 	_credit_terms(doc, p.credit_days)
-	return _save(doc, pd, submit=not p.draft, fill_taxes=True, tax_inclusive=True)
+	w.locale.sales_taxes(doc, w)
+	return _save(doc, pd, submit=not p.draft, fill_taxes=True, tax_inclusive=w.locale.prices_include_tax)
 
 
 def sales_return(p, w, pd):

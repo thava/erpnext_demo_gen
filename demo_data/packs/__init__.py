@@ -8,11 +8,8 @@ every problem with its path, not just the first.
 """
 
 import copy
-import importlib.util
-import json
 import os
 import string
-from functools import cache
 
 import yaml
 
@@ -23,8 +20,6 @@ SIZE_KEYS = ("months", "customers", "suppliers", "items", "sales_invoices", "pur
 FLOW_STEPS = ("quotation", "sales_order", "delivery_note", "sales_invoice", "payment_entry")
 PAYMENT_TERMS = ("immediate", "net_15", "net_30", "net_45", "net_60")
 PARTY_CLASSES = ("b2b", "b2c")
-# rates for which india_compliance creates an Item Tax Template ("GST <rate>% - <abbr>")
-GST_RATES = (5, 12, 18, 28)
 
 
 class PackError(Exception):
@@ -102,41 +97,28 @@ def _strip_append_markers(data):
 
 
 # ---------------------------------------------------------------- validation
-@cache
-def hsn_codes() -> frozenset[str]:
-	"""HSN codes shipped with india_compliance (the GST HSN Code master)."""
-	spec = importlib.util.find_spec("india_compliance")
-	if not spec or not spec.submodule_search_locations:
-		return frozenset()
-	path = os.path.join(spec.submodule_search_locations[0], "gst_india", "data", "hsn_codes.json")
-	with open(path) as f:
-		return frozenset(str(row["hsn_code"]) for row in json.load(f))
-
-
-@cache
-def indian_states() -> frozenset[str]:
-	try:
-		from india_compliance.gst_india.constants import STATE_NUMBERS
-	except ImportError:
-		return frozenset()
-	return frozenset(STATE_NUMBERS) - {"Other Countries", "Other Territory"}
-
-
 def validate_pack(pack: dict) -> list[str]:
 	e: list[str] = []
 	_check(e, pack.get("schema_version") == SCHEMA_VERSION, "schema_version", f"must be {SCHEMA_VERSION}")
 	for key in ("id", "title"):
 		_check(e, _is_str(pack.get(key)), key, "is required")
 	_check(e, _is_int(pack.get("pack_version"), minimum=1), "pack_version", "must be a positive integer")
+	from demo_data.locales import get_locale, known_locales
+
+	code = pack.get("locale", "IN")
+	if not _check(e, code in known_locales(), "locale", f"must be one of {', '.join(known_locales())}"):
+		return e
+	locale = get_locale(code)
 
 	_validate_company(e, pack.get("company"))
 	_validate_parties(e, pack.get("parties"))
 	_validate_behavior(e, pack.get("behavior"))
-	_validate_banking(e, pack.get("banking"))
+	_validate_banking(e, pack.get("banking"), locale.payment_modes)
 	_validate_sizes(e, pack.get("sizes"))
 	if not pack.get("abstract"):
 		_validate_channels(e, pack.get("channels"))
 		_validate_catalog(e, pack.get("catalog"))
+	locale.validate_pack(pack, lambda ok, path, message: _check(e, ok, path, message))
 	return e
 
 
@@ -149,14 +131,6 @@ def _validate_company(e, company):
 		isinstance(nouns, list) and nouns and all(map(_is_str, nouns)),
 		"company.industry_nouns",
 		"must be a non-empty list of words",
-	)
-	states = indian_states()
-	state = company.get("home_state")
-	_check(
-		e,
-		_is_str(state) and (not states or state in states),
-		"company.home_state",
-		f"unknown state {state!r}",
 	)
 	whs = company.get("warehouses")
 	_check(
@@ -245,7 +219,6 @@ def _validate_catalog(e, catalog):
 	families = catalog.get("families") or []
 	if not _check(e, families, "catalog.families", "must be a non-empty list"):
 		return
-	known_hsn = hsn_codes()
 	ids = set()
 	for i, f in enumerate(families):
 		p = f"catalog.families[{i}]"
@@ -267,16 +240,6 @@ def _validate_catalog(e, catalog):
 			if "series" in template_fields(template):
 				_check(e, series, f"{p}.name_template", "uses {series} but catalog.series is empty")
 		_check(e, _is_int(f.get("count"), minimum=1), f"{p}.count", "must be a positive integer")
-		hsn = str(f.get("hsn") or "")
-		_check(
-			e,
-			len(hsn) in (6, 8) and hsn.isdigit(),
-			f"{p}.hsn",
-			"must be 6 or 8 digits (GST Settings default minimum is 6)",
-		)
-		if known_hsn:
-			_check(e, hsn in known_hsn, f"{p}.hsn", f"{hsn!r} is not in india_compliance's HSN list")
-		_check(e, f.get("gst_rate") in GST_RATES, f"{p}.gst_rate", f"must be one of {GST_RATES}")
 		_check(
 			e,
 			_is_range(f.get("price_range"), minimum=1),
@@ -322,11 +285,10 @@ def _validate_behavior(e, behavior):
 		_check(e, _is_num(value, 0) and value < 0.5, f"behavior.rates.{key}", "must be between 0 and 0.5")
 
 
-PAYMENT_MODES = ("Cash", "UPI", "Wire Transfer", "Cheque", "Card")
 PAYERS = ("counter", "customer", "supplier")
 
 
-def _validate_banking(e, banking):
+def _validate_banking(e, banking, payment_modes):
 	if not _check(e, isinstance(banking, dict), "banking", "is required"):
 		return
 	for role in ("main", "collection"):
@@ -336,11 +298,7 @@ def _validate_banking(e, banking):
 			continue
 		for key in ("bank", "short"):
 			_check(e, _is_str(bank.get(key)), f"{path}.{key}", "is required")
-		prefix = bank.get("ifsc_prefix") or ""
-		_check(e, len(prefix) == 4 and prefix.isalpha() and prefix.isupper(), f"{path}.ifsc_prefix", "must be 4 capital letters")
 	_check(e, _is_int(banking.get("sweep_weekday"), 0) and banking["sweep_weekday"] <= 6, "banking.sweep_weekday", "must be 0 (Monday) to 6")
-	for key in ("upi_limit", "rtgs_from"):
-		_check(e, _is_num(banking.get(key), minimum=1), f"banking.{key}", "must be a positive number")
 	modes = banking.get("modes") or {}
 	used = set()
 	for payer in PAYERS:
@@ -349,7 +307,7 @@ def _validate_banking(e, banking):
 		if not _check(e, shares and _close(sum(shares.values()), 1), path, "shares must add up to 1"):
 			continue
 		for mode in shares:
-			_check(e, mode in PAYMENT_MODES, path, f"unknown mode {mode!r}; use {', '.join(PAYMENT_MODES)}")
+			_check(e, mode in payment_modes, path, f"unknown mode {mode!r}; use {', '.join(payment_modes)}")
 			_check(e, mode != "Cash" or payer == "counter", path, "Cash is only for counter payments")
 		used |= set(shares)
 	days = banking.get("clearing_days") or {}

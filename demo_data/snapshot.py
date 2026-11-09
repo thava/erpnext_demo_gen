@@ -25,7 +25,12 @@ from frappe.utils import get_bench_path, getdate, now
 
 SNAPSHOT_DIR = "demo-snapshots"  # under the bench folder, outside sites/
 ADMIN_PASSWORD = "changeme"  # documented; snapshots hold only open, fictional data
-APPS = ("frappe", "erpnext", "india_compliance", "demo_data")
+def apps_for(pack_id: str) -> tuple[str, ...]:
+	"""Apps a build site for the pack gets, in install order (India: india_compliance too)."""
+	from demo_data.locales import get_locale
+	from demo_data.packs import load_pack
+
+	return tuple(dict.fromkeys(("frappe", "erpnext", *get_locale(load_pack(pack_id)).required_apps, "demo_data")))
 
 
 class SnapshotError(Exception):
@@ -149,7 +154,7 @@ def build(
 	new_site = ["new-site", site, "--admin-password", ADMIN_PASSWORD, "--db-root-password", db_root_password]
 	if host_scope:
 		new_site += ["--mariadb-user-host-login-scope", host_scope]
-	for app in APPS[1:]:
+	for app in apps_for(pack)[1:]:
 		new_site += ["--install-app", app]
 	bench(new_site, log, secret=db_root_password)
 	try:
@@ -183,22 +188,34 @@ def latest_dump(out_dir: str, pack: str, size: str) -> str:
 def company_identity(pack_id: str, seed: int) -> tuple[str, str]:
 	"""The name and abbreviation a live install would generate for this seed."""
 	from demo_data import naming
+	from demo_data.locales import get_locale
 	from demo_data.packs import load_pack
 
 	pack = load_pack(pack_id)
-	name = naming.company_name(Random(f"{seed}:company-name"), pack["company"]["industry_nouns"], "Pvt Ltd")
+	suffix = get_locale(pack).company_suffix
+	name = naming.company_name(Random(f"{seed}:company-name"), pack["company"]["industry_nouns"], suffix)
 	return name, naming.abbreviation(name, set())
 
 
-def fiscal_year(today: dt.date) -> tuple[dt.date, dt.date]:
-	start = dt.date(today.year if today.month >= 4 else today.year - 1, 4, 1)
-	return start, dt.date(start.year + 1, 3, 31)
+def fiscal_year(today: dt.date, locale=None) -> tuple[dt.date, dt.date]:
+	"""The fiscal year containing today (the locale's; India: April to March)."""
+	from demo_data.locales import get_locale
+
+	locale = locale or get_locale()
+	start = locale.fiscal_year_starts(today, today)[0]
+	return start, locale.fiscal_year_end(start)
 
 
 def complete_setup(pack: str, seed: int = 1, company: str | None = None):
-	"""Run the setup wizard non-interactively (India, INR) with the demo company, or
-	with the given company (CI: a neutral wizard company next to the demo's own)."""
+	"""Run the setup wizard non-interactively in the pack's country (India: INR) with the
+	demo company, or with the given company (CI: a neutral wizard company next to the
+	demo's own)."""
 	from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
+
+	from demo_data.locales import get_locale
+	from demo_data.packs import load_pack
+
+	locale = get_locale(load_pack(pack))
 
 	if frappe.is_setup_complete():
 		return
@@ -208,13 +225,13 @@ def complete_setup(pack: str, seed: int = 1, company: str | None = None):
 		name, abbr = company, naming.abbreviation(company, set())
 	else:
 		name, abbr = company_identity(pack, int(seed))
-	start, end = fiscal_year(dt.date.today())
+	start, end = fiscal_year(dt.date.today(), locale)
 	result = setup_complete(
 		{
 			"language": "English",
-			"country": "India",
-			"timezone": "Asia/Kolkata",
-			"currency": "INR",
+			"country": locale.country,
+			"timezone": locale.timezone,
+			"currency": locale.currency,
 			"company_name": name,
 			"company_abbr": abbr,
 			"chart_of_accounts": "Standard",
@@ -243,7 +260,7 @@ def dump(out_dir: str):
 	params = run.params
 	versions = {app: str(frappe.get_attr(f"{app}.__version__")) for app in frappe.get_installed_apps()}
 	short = {"frappe": "f", "erpnext": "e", "india_compliance": "ic", "demo_data": "dd"}
-	tag = "-".join(f"{short[a]}{versions[a]}" for a in APPS)
+	tag = "-".join(f"{short.get(a, a)}{versions[a]}" for a in apps_for(params.pack))
 	base = os.path.join(out_dir, f"demo-{params.pack}-{params.size}-s{params.seed}-{tag}-{dt.date.today():%Y%m%d}")
 
 	odb = new_backup(ignore_files=True, ignore_conf=True, compress=True, force=True, backup_path_db=f"{base}.sql.gz")

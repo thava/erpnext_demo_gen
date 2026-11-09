@@ -1,11 +1,9 @@
-"""Demo company and India set-up (milestone 1).
+"""Demo company set-up (milestone 1). Country specifics come from the pack's locale.
 
-With --no-gst no address is created, so the company stays unregistered for GST. In
-wizard mode the company is the user's; only --fictitious-gstin adds an address to it.
-
-Creates, through the registry: the demo Company (ERPNext installs India
-fixtures and india_compliance adds GST accounts and tax templates, F-5), its
-GSTIN-bearing Address, the pack's warehouses and every Fiscal Year the date
+Creates, through the registry: the demo Company (ERPNext installs the country's
+fixtures; in India india_compliance adds GST accounts and tax templates, F-5), its
+own Address with its tax ID (India: GSTIN; none with --no-gst, and in wizard mode
+only with --fictitious-gstin), the pack's warehouses and every Fiscal Year the date
 range touches. Then makes the demo company the default and registers it as
 ERPNext's demo company (DEC-19), remembering the previous default for uninstall.
 """
@@ -17,12 +15,11 @@ import frappe
 from frappe.utils import add_days, add_months, getdate
 
 from demo_data import naming
-from demo_data.india import geo
-from demo_data.india.gstin import make_gstin, make_pan
+from demo_data.locales import get_locale
 from demo_data.registry import Run
-from demo_data.setup.tax_templates import ensure_no_itc_templates, purge_orphans
+from demo_data.setup.tax_templates import purge_orphans
 
-DEMO_LABEL = "Fictional company created by the demo_data app. All names, GSTINs and figures are made up."
+DEMO_LABEL = "Fictional company created by the demo_data app. All names, tax IDs and figures are made up."
 
 
 def rng_for(run: Run, purpose: str) -> random.Random:
@@ -34,11 +31,9 @@ def date_range(end_date: date, months: int) -> tuple[date, date]:
 	return add_days(add_months(end_date, -months), 1), end_date
 
 
-def fiscal_year_starts(start: date, end: date) -> list[date]:
-	"""April-to-March fiscal years that the range touches."""
-	first = start.year if start.month >= 4 else start.year - 1
-	last = end.year if end.month >= 4 else end.year - 1
-	return [date(y, 4, 1) for y in range(first, last + 1)]
+def fiscal_year_starts(start: date, end: date, locale=None) -> list[date]:
+	"""Fiscal years that the range touches (the locale's; India: April to March)."""
+	return (locale or get_locale()).fiscal_year_starts(start, end)
 
 
 def choose_company_name(run: Run, pack: dict) -> str:
@@ -46,7 +41,7 @@ def choose_company_name(run: Run, pack: dict) -> str:
 		return run.params.company
 	rng = rng_for(run, "company-name")
 	for _ in range(50):
-		name = naming.company_name(rng, pack["company"]["industry_nouns"], "Pvt Ltd")
+		name = naming.company_name(rng, pack["company"]["industry_nouns"], get_locale(pack).company_suffix)
 		if not frappe.db.exists("Company", name):
 			return name
 	frappe.throw("Could not find an unused company name; pass --demo-company-name")
@@ -55,6 +50,7 @@ def choose_company_name(run: Run, pack: dict) -> str:
 def setup_company(run: Run, pack: dict) -> str:
 	params = run.params
 	home_state = params.home_state
+	locale = get_locale(pack)
 
 	if params.use_wizard_company:
 		company = params.company
@@ -71,12 +67,8 @@ def setup_company(run: Run, pack: dict) -> str:
 					"doctype": "Company",
 					"company_name": company_name,
 					"abbr": abbr,
-					"country": "India",
-					"default_currency": "INR",
-					"chart_of_accounts": "Standard",
-					"default_gst_rate": "18.0",  # Select field of strings (F-24)
+					**locale.company_fields(params),
 					"company_description": DEMO_LABEL,
-					**({"gst_category": "Unregistered"} if params.get("gst") == "unregistered" else {}),
 				}
 			).insert(ignore_permissions=True)
 
@@ -86,24 +78,17 @@ def setup_company(run: Run, pack: dict) -> str:
 
 	def create_address():
 		rng = rng_for(run, "company-address")
-		gstin = make_gstin(geo.state_code(home_state), make_pan(rng, "company", company))
-		# in the user's own company, say plainly that the GSTIN is made up
-		title = f"{company} (demo, fictitious GSTIN)" if params.use_wizard_company else company
 		return frappe.get_doc(
 			{
 				"doctype": "Address",
-				"address_title": title,
-				"address_type": "Billing",
-				**geo.make_address(rng, home_state),
-				"gstin": gstin,
-				"gst_category": "Registered Regular",
+				**locale.company_address(rng, company, home_state, bool(params.use_wizard_company)),
 				"is_your_company_address": 1,
 				"is_primary_address": 1,
 				"links": [{"link_doctype": "Company", "link_name": company}],
 			}
 		).insert(ignore_permissions=True)
 
-	if params.get("gst") != "unregistered" and (not params.use_wizard_company or params.get("fictitious_gstin")):
+	if locale.wants_company_address(params):
 		run.ensure("setup:company-address", create_address)
 
 	parent_warehouse = frappe.db.get_value(
@@ -125,20 +110,17 @@ def setup_company(run: Run, pack: dict) -> str:
 		)
 
 	start, end = date_range(getdate(params.end_date), params.months)
-	for fy_start in fiscal_year_starts(start, end):
-		ensure_fiscal_year(run, fy_start, company)
+	for fy_start in fiscal_year_starts(start, end, locale):
+		ensure_fiscal_year(run, fy_start, company, locale)
 
-	if params.get("gst") == "unregistered":
-		ensure_no_itc_templates(run, company, abbr)
-
+	locale.setup_taxes(run, company, abbr, pack)  # India: no-ITC templates (--no-gst), SEZ switch
 	setup_banking(run, company, abbr, pack)
-	enable_sez(run, pack)
 
 	set_defaults(run, company)
 	return company
 
 
-def ensure_fiscal_year(run: Run, fy_start: date, company: str):
+def ensure_fiscal_year(run: Run, fy_start: date, company: str, locale=None):
 	existing = frappe.db.get_value(
 		"Fiscal Year", {"year_start_date": fy_start}, ["name", "disabled"], as_dict=True
 	)
@@ -152,7 +134,7 @@ def ensure_fiscal_year(run: Run, fy_start: date, company: str):
 		if existing.disabled:
 			frappe.throw(f"Fiscal Year {existing.name} is disabled")
 		return
-	fy_end = date(fy_start.year + 1, 3, 31)
+	fy_end = (locale or get_locale()).fiscal_year_end(fy_start)
 	run.ensure(
 		f"setup:fiscal-year:{fy_start.year}",
 		lambda: frappe.get_doc(
@@ -192,6 +174,7 @@ def setup_banking(run: Run, company: str, abbr: str, pack: dict):
 	"""
 	from demo_data.planner.transactions import planned_mode_names
 
+	locale = get_locale(pack)
 	cfg = pack["banking"]
 	parent = frappe.db.get_value(
 		"Account", {"company": company, "account_type": "Bank", "is_group": 1}, order_by="lft"
@@ -218,7 +201,7 @@ def setup_banking(run: Run, company: str, abbr: str, pack: dict):
 					"company": company,
 					"parent_account": parent,
 					"account_type": "Bank",
-					"account_currency": "INR",
+					"account_currency": locale.currency,
 				}
 			).insert(ignore_permissions=True)
 
@@ -237,8 +220,7 @@ def setup_banking(run: Run, company: str, abbr: str, pack: dict):
 					"is_company_account": 1,
 					# a company the user keeps may have its own default bank account
 					"is_default": int(role == "main" and not run.params.use_wizard_company),
-					"bank_account_no": "".join(str(rng.randint(0, 9)) for _ in range(14)),
-					"branch_code": f"{cfg[role]['ifsc_prefix']}0{rng.randint(0, 999999):06d}",
+					**locale.bank_account_fields(rng, cfg[role]),
 				}
 			).insert(ignore_permissions=True)
 
@@ -249,7 +231,7 @@ def setup_banking(run: Run, company: str, abbr: str, pack: dict):
 	cash = frappe.get_cached_value("Company", company, "default_cash_account")
 	# which ledger each mode posts to in this company
 	targets = {"Cash": cash, **dict.fromkeys(BANK_MODES, main)}
-	for mode in sorted(planned_mode_names(cfg)):
+	for mode in sorted(planned_mode_names(cfg, locale.counter_modes)):
 		targets.setdefault(mode, collection if mode.endswith(f" - {cfg['collection']['short']}") else main)
 		if not frappe.db.exists("Mode of Payment", mode):
 			run.ensure(
@@ -276,22 +258,6 @@ def setup_banking(run: Run, company: str, abbr: str, pack: dict):
 			doc.save()
 			banking["modes_added"] = sorted({*banking["modes_added"], mode})
 	run.update_params(banking=banking)
-	frappe.db.commit()
-
-
-def enable_sez(run: Run, pack: dict):
-	"""SEZ customers need GST Settings' "Enable SEZ / Overseas Transactions", as a real
-	business with SEZ customers would have; india_compliance refuses their orders
-	otherwise. A site-wide setting, so the previous value is recorded and uninstall
-	restores it. Not needed without GST (--no-gst plans no SEZ customers)."""
-	if not pack["behavior"]["gst_categories"].get("sez") or run.params.get("gst") == "unregistered":
-		return
-	if "gst_settings" in run.params:
-		return  # recorded on a previous attempt
-	previous = frappe.db.get_single_value("GST Settings", "enable_overseas_transactions")
-	run.update_params(gst_settings={"enable_overseas_transactions": previous})
-	if not previous:
-		frappe.db.set_single_value("GST Settings", "enable_overseas_transactions", 1)
 	frappe.db.commit()
 
 

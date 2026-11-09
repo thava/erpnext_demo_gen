@@ -3,6 +3,7 @@
 # writes the key with a trailing "+" (e.g. "warehouses+:"), which appends.
 schema_version: 1
 id: india_trading
+locale: IN                         # country: tax, addresses, names, fiscal year (demo_data/locales)
 abstract: true
 pack_version: 1
 title: India Trading (base)

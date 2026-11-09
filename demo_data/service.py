@@ -20,24 +20,20 @@ class DemoDataError(Exception):
 
 
 # ---------------------------------------------------------------- preflight
-def preflight(force: bool = False) -> list[str]:
+def preflight(force: bool = False, locale=None) -> list[str]:
 	"""Hard failures raise; soft ones (overridable with force) are returned as warnings."""
+	from demo_data.locales import get_locale
+
+	locale = locale or get_locale()
 	installed = frappe.get_installed_apps()
-	for app in ("erpnext", "india_compliance"):
+	for app in locale.required_apps:
 		if app not in installed:
 			raise DemoDataError(f"{app} must be installed on the site first")
 	if not frappe.is_setup_complete():
 		raise DemoDataError("Finish the setup wizard first")
 	check_redis()
 
-	problems = []
-	from india_compliance.gst_india.utils import is_api_enabled
-
-	if is_api_enabled():
-		problems.append(
-			"india_compliance's GST API is enabled; generated invoices could reach the GST portal "
-			"(e-invoice, e-waybill, GSTIN lookups)"
-		)
+	problems = locale.preflight_problems()
 	if problems and not force:
 		raise DemoDataError(
 			"Refusing to install: " + "; ".join(problems) + ". Use --force to install anyway."
@@ -106,12 +102,13 @@ def check_redis():
 def resolve_params(
 	pack_id, size, seed, end_date, home_state, company, use_wizard_company, no_gst=False, fictitious_gstin=False
 ) -> tuple[dict, dict]:
-	from demo_data.india.geo import CITIES, STATE_ABBREVIATIONS, resolve_state
+	from demo_data.locales import get_locale
 
 	pack = load_pack(pack_id)
-	choices = ", ".join(f"{STATE_ABBREVIATIONS[s]} ({s})" for s in sorted(CITIES))
+	locale = get_locale(pack)
+	choices = locale.region_choices()
 	if home_state:
-		given, home_state = home_state, resolve_state(home_state)
+		given, home_state = home_state, locale.resolve_region(home_state)
 		if not home_state:
 			raise DemoDataError(f"Unknown state {given!r}; use a name or code: {choices}")
 	if size not in pack["sizes"]:
@@ -145,69 +142,21 @@ def resolve_params(
 		if not wizard or not frappe.db.exists("Company", wizard):
 			raise DemoDataError("--use-wizard-company needs an existing default company")
 		country, currency = frappe.db.get_value("Company", wizard, ["country", "default_currency"])
-		if country != "India" or currency != "INR":
+		if country != locale.country or currency != locale.currency:
 			raise DemoDataError(
-				f"demo_data supports India only, and {wizard!r} is set up for {country or 'no country'} "
-				f"({currency or 'no currency'}). Its customers, addresses, GST setup and INR prices "
-				"would not fit."
+				f"The {pack_id} pack is for {locale.country} ({locale.currency}), and {wizard!r} is set "
+				f"up for {country or 'no country'} ({currency or 'no currency'}). Its customers, "
+				f"addresses, tax setup and {locale.currency} prices would not fit."
 			)
 		params["company"] = wizard
-		state = company_gst_state(wizard)
-		if state and (no_gst or fictitious_gstin):
-			raise DemoDataError(
-				f"{wizard!r} is already GST-registered (state {state}); leave out --no-gst and --fictitious-gstin"
-			)
-		if state:
-			if home_state and home_state != state:
-				raise DemoDataError(
-					f"--home-state {home_state!r} differs from the GST state of {wizard!r} ({state}); "
-					"leave --home-state out in wizard mode"
-				)
-			params["home_state"] = state
-		elif fictitious_gstin:
-			params["fictitious_gstin"] = True  # setup adds a labelled address; uninstall removes it
-		elif not no_gst:
-			raise DemoDataError(
-				f"{wizard!r} has no GSTIN (no company address with one), so it is unregistered for GST "
-				"and india_compliance charges no GST (F-37). Either add your company address with its "
-				"GSTIN, or pass --fictitious-gstin to have the demo add an address with a made-up GSTIN "
-				"(removed on uninstall), or pass --no-gst --force to generate the demo without GST."
-			)
+		locale.check_wizard_company(wizard, params, home_state, no_gst, fictitious_gstin)
 	elif company and frappe.db.exists("Company", company):
 		raise DemoDataError(
 			f"Company {company!r} already exists; pick another --demo-company-name or use --use-wizard-company"
 		)
-	if params["home_state"] not in CITIES:
+	if params["home_state"] not in locale.regions():
 		raise DemoDataError(f"No curated cities for {params['home_state']} yet; choose one of: {choices}")
 	return pack, params
-
-
-def company_gst_state(company: str) -> str | None:
-	"""The GST state of the company's own GSTIN address, or None when it has none. Without
-	one, india_compliance treats the company as unregistered and charges no GST (F-37)."""
-	addresses = frappe.get_all(
-		"Address",
-		filters=[
-			["Dynamic Link", "link_doctype", "=", "Company"],
-			["Dynamic Link", "link_name", "=", company],
-			["is_your_company_address", "=", 1],
-			["gstin", "is", "set"],
-			["disabled", "=", 0],
-		],
-		fields=["gst_state"],
-		order_by="is_primary_address desc, creation asc",
-		limit=1,
-	)
-	return addresses[0].gst_state if addresses else None
-
-
-NO_GST_WARNING = (
-	"generating without GST: the company is unregistered, so sales carry no GST and the GST "
-	"paid on purchases becomes part of their cost (no input tax credit). This demo's turnover "
-	"is above the GST registration threshold (Rs 40 lakh a year for goods, Rs 20 lakh in "
-	"special-category states), so a real business like it would have to register. All customers "
-	"are in the home state: an unregistered business cannot sell goods to other states"
-)
 
 
 INPUT_KEYS = ("pack", "size", "seed", "end_date", "home_state", "use_wizard_company", "gst", "fictitious_gstin")
@@ -246,15 +195,18 @@ def install(
 	no_gst=False,
 	fictitious_gstin=False,
 ):
-	warnings = preflight(force)
+	from demo_data.locales import get_locale
+
+	locale = get_locale(load_pack(pack))
+	warnings = preflight(force, locale)
 	pack_data, params = resolve_params(
 		pack, size, seed, end_date, home_state, company, use_wizard_company, no_gst, fictitious_gstin
 	)
 	site_in_use(params, force, log)
 	if params["gst"] == "unregistered":
 		if not force:
-			raise DemoDataError(f"Refusing to install: {NO_GST_WARNING}. Use --force to install anyway.")
-		warnings.append(NO_GST_WARNING)
+			raise DemoDataError(f"Refusing to install: {locale.unregistered_warning}. Use --force to install anyway.")
+		warnings.append(locale.unregistered_warning)
 	if params["fictitious_gstin"]:
 		log(
 			f"Note: adding a company address with a made-up GSTIN to {params['company']} (state "
@@ -322,7 +274,7 @@ def plan_for(run: Run, pack: dict) -> list:
 
 	start, end = date_range(getdate(run.params.end_date), run.params.months)
 	ctx = PlanContext(pack, run.params.size, run.params.seed, run.params.home_state, start, end)
-	ctx.sales_gst = run.params.get("gst", "registered") == "registered"
+	ctx.sales_tax = run.params.get("gst", "registered") == "registered"
 	return make_plan(ctx)
 
 

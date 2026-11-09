@@ -1,7 +1,7 @@
 app_name = "demo_data"
 app_title = "Demo Data"
 app_publisher = "Thava Alagu"
-app_description = "Realistic, removable India demo data for ERPNext v16+"
+app_description = "Realistic, removable demo data for ERPNext v16+ (India; United States in progress)"
 app_email = "thavamuni@gmail.com"
 app_license = "gpl-3.0"
 
@@ -286,4 +286,4 @@ override_whitelisted_methods = {
 	"erpnext.setup.demo.clear_demo_data": "demo_data.api.clear_demo_data",
 }
 
-required_apps = ["erpnext", "india_compliance"]
+required_apps = ["erpnext"]  # country apps (India: india_compliance) are checked by the pack's locale

@@ -103,7 +103,7 @@ PLACE_WORDS = [
 	"Star",
 ]
 
-LEGAL_SUFFIXES = ["Pvt Ltd", "Private Limited", "LLP", "Enterprises", "& Co", "Traders"]
+LEGAL_SUFFIXES = ["Pvt Ltd", "Private Limited", "LLP", "Enterprises", "& Co", "Traders", "LLC", "Inc"]
 
 
 def brand(rng: random.Random) -> str:

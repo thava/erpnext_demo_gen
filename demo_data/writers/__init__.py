@@ -35,9 +35,10 @@ class WriteContext:
 	territory: str
 	selling_price_list: str
 	buying_price_list: str
-	tax_templates: dict = field(default_factory=dict)  # gst rate -> Item Tax Template
-	gst_registered: bool = True  # False with --no-gst: no GST on sales, purchase GST is a cost
-	home_state_code: str = ""
+	tax_templates: dict = field(default_factory=dict)  # locale key (India: GST rate) -> Item Tax Template
+	tax_registered: bool = True  # False with --no-gst: no tax on sales, purchase tax is a cost
+	locale: object = None  # demo_data.locales.Locale
+	locale_data: dict = field(default_factory=dict)  # whatever the locale's builders need
 	bank_account: str = ""  # the demo's main Bank Account and its ledger (setup_banking)
 	bank_ledger: str = ""
 	cash_account: str = ""
@@ -45,33 +46,23 @@ class WriteContext:
 
 	@classmethod
 	def for_run(cls, run: Run, pack: dict, start_date: date) -> "WriteContext":
-		from frappe.utils.nestedset import get_root_of
-
-		from demo_data.india.geo import state_code
+		from demo_data.locales import get_locale
 
 		company = run.doc.company
 		abbr = frappe.get_cached_value("Company", company, "abbr")
-		templates = {}
-		for row in frappe.get_all(
-			"Item Tax Template",
-			filters={"company": company, "disabled": 0, "gst_rate": [">", 0]},
-			fields=["name", "gst_rate"],
-			order_by="name",
-		):
-			templates.setdefault(float(row.gst_rate), row.name)
+		locale = get_locale(pack)
 		return cls(
 			company=company,
 			abbr=abbr,
 			default_warehouse=f"{pack['company']['warehouses'][0]} - {abbr}",
 			start_date=getdate(start_date),
-			territory="India" if frappe.db.exists("Territory", "India") else get_root_of("Territory"),
 			selling_price_list=frappe.db.get_single_value("Selling Settings", "selling_price_list")
 			or "Standard Selling",
 			buying_price_list=frappe.db.get_single_value("Buying Settings", "buying_price_list")
 			or "Standard Buying",
-			tax_templates=templates,
-			gst_registered=run.params.get("gst", "registered") == "registered",
-			home_state_code=state_code(run.params.home_state),
+			tax_registered=run.params.get("gst", "registered") == "registered",
+			locale=locale,
+			**locale.writer_context(run, company),
 			bank_account=(run.params.get("banking") or {}).get("bank_account", ""),
 			bank_ledger=(run.params.get("banking") or {}).get("bank_ledger")
 			or frappe.get_cached_value("Company", company, "default_bank_account"),
@@ -83,7 +74,7 @@ class WriteContext:
 		try:
 			return self.tax_templates[float(rate)]
 		except KeyError:
-			frappe.throw(f"No Item Tax Template with GST rate {rate}% for {self.company}")
+			frappe.throw(f"No Item Tax Template for {rate} in {self.company}")
 
 
 def resolve(value, done: dict):

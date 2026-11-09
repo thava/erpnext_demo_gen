@@ -28,6 +28,12 @@ class PlannedDoc:
 	posting_time: str | None = None  # "HH:MM:SS"; strictly increasing within a day
 
 
+def weighted(rng, weights: dict):
+	"""One key of weights, drawn in proportion to its value."""
+	keys = list(weights)
+	return rng.choices(keys, weights=[weights[k] for k in keys])[0]
+
+
 def ref(key: str) -> dict:
 	return {"$ref": key}
 
@@ -51,7 +57,7 @@ class PlanContext:
 	home_state: str
 	start_date: date
 	end_date: date
-	sales_gst: bool = True  # False for an unregistered company: sales carry no GST
+	sales_tax: bool = True  # False for a company not registered for sales tax (India: --no-gst)
 
 	@property
 	def size(self) -> dict:
@@ -59,6 +65,12 @@ class PlanContext:
 
 	def rng(self, purpose: str) -> random.Random:
 		return random.Random(f"{self.seed}:{purpose}")
+
+	@property
+	def locale(self):
+		from demo_data.locales import get_locale
+
+		return get_locale(self.pack)
 
 
 class Plan:
