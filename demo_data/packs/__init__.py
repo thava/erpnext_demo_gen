@@ -278,9 +278,8 @@ def _validate_behavior(e, behavior):
 	_check(
 		e, _is_num(share, 0) and share <= 1, "behavior.geography.home_state_share", "must be between 0 and 1"
 	)
-	for key in ("gst_categories", "payment_outcomes"):
-		values = behavior.get(key) or {}
-		_check(e, values and _close(sum(values.values()), 1), f"behavior.{key}", "shares must add up to 1")
+	values = behavior.get("payment_outcomes") or {}
+	_check(e, values and _close(sum(values.values()), 1), "behavior.payment_outcomes", "shares must add up to 1")
 	for key, value in (behavior.get("rates") or {}).items():
 		_check(e, _is_num(value, 0) and value < 0.5, f"behavior.rates.{key}", "must be between 0 and 0.5")
 

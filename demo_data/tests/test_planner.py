@@ -14,7 +14,8 @@ def plan(size="small", seed=1, home="Tamil Nadu", pack_id="furniture_store", sal
 
 
 def by_doctype(docs):
-	return Counter(d.doctype for d in docs)
+	"""Counts per doctype, leaving out own-use supplies (planner/supplies.py)."""
+	return Counter(d.doctype for d in docs if not d.key.startswith("M:supply:") and d.params.get("family") != "supplies")
 
 
 class TestMasterPlan(UnitTestCase):
@@ -33,7 +34,7 @@ class TestMasterPlan(UnitTestCase):
 		self.assertEqual(counts["Item Price"], 2 * size["items"])
 		self.assertEqual(counts["Supplier"], size["suppliers"])
 		self.assertEqual(counts["Customer"], size["customers"] + 1)  # + Walk-in Customer
-		self.assertEqual(counts["Item Group"], len(pack["catalog"]["item_groups"]))
+		self.assertEqual(counts["Item Group"], len(pack["catalog"]["item_groups"]) + 1)  # + Office Supplies
 		self.assertEqual(counts["Payment Terms Template"], 2)  # net_15, net_30
 
 	def test_medium_scales(self):
@@ -101,7 +102,7 @@ class TestMasterPlan(UnitTestCase):
 			if d.doctype == "Item Price"
 		}
 		for d in docs:
-			if d.doctype == "Item":
+			if d.doctype == "Item" and d.params["family"] != "supplies":  # supplies are only bought
 				key = d.key
 				self.assertLess(prices[("buying", key)], prices[("selling", key)])
 				self.assertTrue(d.params["suppliers"])
@@ -194,7 +195,7 @@ class TestReorderFit(UnitTestCase):
 	def test_reorder_levels_cover_medium_demand(self):
 		pack, docs = plan_for_pack("furniture_store", "medium")
 		pack_levels = {f["id"]: f["reorder"] for f in pack["catalog"]["families"]}
-		items = [d for d in docs if d.doctype == "Item"]
+		items = [d for d in docs if d.doctype == "Item" and d.params["family"] != "supplies"]
 		raised = sum(1 for d in items if d.params["reorder"]["max"] > pack_levels[d.params["family"]]["max"])
 		self.assertGreater(raised, 0)
 		for d in items:
@@ -259,10 +260,11 @@ class TestMicro(UnitTestCase):
 				ctx = PlanContext(pack, "micro", seed, "Tamil Nadu", dt.date(2026, 8, 9), dt.date(2026, 11, 8))
 				docs = make_plan(ctx)
 				where = f"{pack_id} seed {seed}"
-				self.assertLess(len(docs), 350, where)
+				self.assertLess(len(docs), 420, where)  # about 60 of them own-use supplies
 				builders = Counter(d.builder for d in docs)
 				for builder in ("quotation", "sales_order", "delivery_note", "invoice_from_delivery", "counter_sales_invoice",
-					"sales_return", "cancel", "purchase_order", "purchase_invoice", "pay_supplier", "bank_transfer"):
+					"sales_return", "cancel", "purchase_order", "purchase_invoice", "pay_supplier", "bank_transfer",
+					"stock_issue", "purchase_invoice_from_order"):
 					self.assertGreater(builders[builder], 0, f"{where}: {builder}")
 				self.assertTrue(any(d.params.get("draft") for d in docs if d.builder == "counter_sales_invoice"), where)
 				modes = {d.params["mode"] for d in docs if d.builder in ("receive_payment", "pay_supplier")}

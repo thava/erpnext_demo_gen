@@ -31,6 +31,7 @@ STAGE = {
 	"material_request": 10,
 	"purchase_order": 20,
 	"purchase_receipt": 30,
+	"stock_issue": 35,  # own-use supplies issued from their store (planner/supplies.py)
 	"purchase_invoice": 40,
 	"supplier_payment": 50,
 	"quotation": 60,
@@ -41,7 +42,7 @@ STAGE = {
 	"sales_return": 110,
 	"refund": 120,
 }
-BANK_FLOOR = 100_000
+BANK_FLOOR = 100_000  # default lowest planned bank balance, and the loan step (pack: banking.cash_floor)
 LOST_QUOTATION_SHARE = 0.25
 PARTIAL_DELIVERY_SHARE = 0.12
 SPLIT_LATE_PAYMENT_SHARE = 0.4
@@ -161,8 +162,13 @@ def plan_transactions(plan: Plan):
 	tl = Timeline()
 
 	plan_sales(ctx, tl, items, customers, terms_days)
+	ensure_open_order(ctx, tl)
+	ensure_overdue(ctx, tl)
 	fit_reorder_levels(plan, tl, items)
 	plan_stock_and_purchases(ctx, tl, items)
+	from demo_data.planner.supplies import plan_supplies
+
+	plan_supplies(ctx, tl)
 	ensure_payment_modes(ctx, tl)
 	plan_bank_transfers(ctx, tl)
 	plan_funding(ctx, tl)
@@ -177,7 +183,7 @@ def read_items(plan: Plan) -> dict[str, ItemInfo]:
 	}
 	items = {}
 	for d in plan.docs:
-		if d.doctype == "Item":
+		if d.doctype == "Item" and d.params.get("family") != "supplies":  # supplies are not for sale
 			p = d.params
 			items[d.key] = ItemInfo(
 				key=d.key,
@@ -700,6 +706,68 @@ def plan_customer_payment(ctx, tl, rng, si_key, si_date, amount, days):
 	return None
 
 
+def ensure_open_order(ctx, tl: Timeline):
+	"""At least one sales order is still to deliver and bill at the end, so that state
+	shows even in a small plan: when every order is delivered, the latest one whose
+	deliveries were never cancelled or returned keeps them (and their invoices and
+	payments) unmade. Plans that already have one are untouched."""
+	orders = [e for e in tl.events if e.builder == "sales_order"]
+	deliveries = defaultdict(list)
+	for e in tl.events:
+		if e.builder == "delivery_note":
+			deliveries[e.params["sales_order"]["$ref"]].append(e)
+	if not orders or any(not deliveries[o.key] for o in orders):
+		return
+	invoices_of = defaultdict(list)  # delivery note key -> invoice events
+	for e in tl.events:
+		if e.builder == "invoice_from_delivery":
+			invoices_of[e.params["delivery_note"]["$ref"]].append(e)
+	touched = {
+		e.params[k]["$ref"] for e in tl.events for k in ("doc", "against") if e.builder in ("cancel", "sales_return") and k in e.params
+	}
+	for order in sorted(orders, key=lambda e: (e.date, e.key), reverse=True):
+		dns = deliveries[order.key]
+		sis = [si for dn in dns for si in invoices_of[dn.key]]
+		if any(si.key in touched for si in sis):
+			continue
+		drop = {dn.key for dn in dns} | {si.key for si in sis}
+		tl.events = [
+			e
+			for e in tl.events
+			if e.key not in drop and not (e.builder == "receive_payment" and e.params["invoice"]["$ref"] in drop)
+		]
+		return
+
+
+def ensure_overdue(ctx, tl: Timeline):
+	"""At least one credit invoice is open past its due date, so the Overdue state shows
+	even in a small plan: when none is, the latest eligible one keeps its payments
+	unmade. Plans that already have one are untouched."""
+	end = ctx.end_date
+	invoices = [
+		e
+		for e in tl.events
+		if e.builder in ("counter_sales_invoice", "invoice_from_delivery")
+		and e.params.get("credit_days")
+		and not e.params.get("draft")
+	]
+	gone = {e.params["doc"]["$ref"] for e in tl.events if e.builder == "cancel"}
+	gone |= {e.params["against"]["$ref"] for e in tl.events if e.builder == "sales_return"}
+	paid = defaultdict(list)
+	for e in tl.events:
+		if e.builder == "receive_payment":
+			paid[e.params["invoice"]["$ref"]].append(e)
+	candidates = [
+		e for e in invoices if e.key not in gone and e.date + timedelta(days=e.params["credit_days"]) < end - timedelta(days=1)
+	]
+	# open, or only partly paid (a final payment has no fraction): ERPNext shows Overdue
+	if not candidates or any(not any(p.params.get("fraction") is None for p in paid[e.key]) for e in candidates):
+		return
+	latest = max(candidates, key=lambda e: (e.date, e.key))
+	dropped = {id(p) for p in paid[latest.key]}
+	tl.events = [e for e in tl.events if id(e) not in dropped]
+
+
 # ---------------------------------------------------------------- stock and purchases
 def fit_reorder_levels(plan: Plan, tl: Timeline, items: dict[str, ItemInfo]):
 	"""Raise pack reorder levels to the planned demand: at least 2 weeks' sales as the
@@ -867,8 +935,9 @@ def plan_funding(ctx, tl: Timeline):
 	for e in sorted(tl.events, key=Event.sort_key):
 		balance += e.bank
 		lowest = min(lowest, balance)
-	if lowest < BANK_FLOOR:
-		loan += math.ceil((BANK_FLOOR - lowest) / 100_000) * 100_000
+	floor = ctx.pack["banking"].get("cash_floor", BANK_FLOOR)
+	if lowest < floor:
+		loan += math.ceil((floor - lowest) / floor) * floor
 	tl.add(
 		Event(
 			ctx.start_date,

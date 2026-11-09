@@ -160,7 +160,10 @@ def build(
 	try:
 		bench(["--site", site, "execute", "demo_data.snapshot.complete_setup", "--kwargs", json.dumps({"pack": pack, "seed": seed})], log)
 		install = ["--site", site, "demo-data", "install", "--pack", pack, "--size", size, "--seed", str(seed)]
-		install += ["--use-wizard-company", "--fictitious-gstin"] + (["--end-date", end_date] if end_date else [])
+		from demo_data.locales import get_locale
+
+		install += ["--use-wizard-company", *get_locale(load_pack(pack)).snapshot_install_args]
+		install += ["--end-date", end_date] if end_date else []
 		bench(install, log)
 		bench(["--site", site, "demo-data", "verify"], log)
 		bench(["--site", site, "execute", "demo_data.snapshot.dump", "--kwargs", json.dumps({"out_dir": out_dir})], log)
@@ -192,8 +195,7 @@ def company_identity(pack_id: str, seed: int) -> tuple[str, str]:
 	from demo_data.packs import load_pack
 
 	pack = load_pack(pack_id)
-	suffix = get_locale(pack).company_suffix
-	name = naming.company_name(Random(f"{seed}:company-name"), pack["company"]["industry_nouns"], suffix)
+	name = get_locale(pack).company_name(Random(f"{seed}:company-name"), pack["company"]["industry_nouns"])
 	return name, naming.abbreviation(name, set())
 
 

@@ -1,0 +1,55 @@
+# Texas furniture showroom with a trade (designers, projects) channel. Furniture is
+# bought for resale (no purchase tax, resale certificate) and sold at the Texas rate.
+schema_version: 1
+id: furniture_store_us
+extends: us_trading
+pack_version: 1
+title: Furniture Store (Texas)
+
+company:
+  industry_nouns: [Furniture, Home Furnishings, Interiors, Home Gallery]
+  warehouses: [Showroom, Warehouse]
+  funding: {share_capital: 300000, term_loan: 100000}
+
+parties:
+  customer_nouns: [Interiors, Design Studio, Builders, Hospitality, Homes, Properties, Workspaces, Furnishings]
+  supplier_nouns: [Furniture Co, Upholstery, Woodworks, Mattress Co, Casegoods, Seating]
+  walk_in_customer: true
+
+channels:
+  - id: showroom
+    share: 0.65
+    party_class: b2c
+    payment: {immediate: 0.8, net_30: 0.2}
+    flow: [sales_invoice, payment_entry]
+  - id: trade_projects
+    share: 0.35
+    party_class: b2b
+    payment: {net_15: 0.4, net_30: 0.6}
+    flow: [quotation, sales_order, delivery_note, sales_invoice, payment_entry]
+
+catalog:
+  item_groups: [Living Room, Bedroom, Dining, Office, Storage]
+  # collection names fill {series}; a family's options fill its other placeholders
+  series: [Aspen, Kensington, Hampton, Monroe, Avalon, Carlton, Sierra, Willow, Savannah, Charleston, Brooklyn,
+           Sonoma, Telluride, Durango, Laredo, Abilene, Galveston, Marfa, Fredericksburg, Brazos, Cheyenne, Dakota,
+           Harbor, Lexington, Madison, Newport, Oakley, Preston, Quincy, Raleigh, Sedona, Taos, Upton, Vail,
+           Whitney, Yorktown, Asheville, Bristol, Clayton, Dover, Everett, Franklin, Granger, Hudson, Irving,
+           Jasper, Kendall, Lancaster, Marion, Nash]
+  families:
+    - {id: sofa,         group: Living Room, name_template: "{series} {n}-Seat Sofa", options: {n: [2, 3, 4]}, count: 6, price_range: [699, 2499], cost_ratio: [0.50, 0.62], reorder: {min: 4, max: 20}}
+    - {id: armchair,     group: Living Room, name_template: "{series} Armchair",        count: 4, price_range: [249, 899],  cost_ratio: [0.50, 0.62], reorder: {min: 4, max: 16}}
+    - {id: accent_chair, group: Living Room, name_template: "{series} Accent Chair",    count: 3, price_range: [149, 449],  cost_ratio: [0.48, 0.60], reorder: {min: 6, max: 30}}
+    - {id: bed,          group: Bedroom,     name_template: "{series} {size} Bed", options: {size: [Twin, Queen, King]}, count: 5, price_range: [599, 1999], cost_ratio: [0.50, 0.62], reorder: {min: 2, max: 10}}
+    - {id: dresser,      group: Bedroom,     name_template: "{series} {n}-Drawer Dresser", options: {n: [4, 6, 8]}, count: 4, price_range: [499, 1499], cost_ratio: [0.50, 0.62], reorder: {min: 2, max: 8}}
+    - {id: mattress,     group: Bedroom,     name_template: "{series} Hybrid Mattress",  count: 4, price_range: [399, 1599], cost_ratio: [0.45, 0.58], reorder: {min: 4, max: 20}}
+    - {id: dining_set,   group: Dining,      name_template: "{series} {n}-Piece Dining Set", options: {n: [5, 7, 9]}, count: 4, price_range: [699, 2499], cost_ratio: [0.50, 0.62], reorder: {min: 2, max: 8}}
+    - {id: office_chair, group: Office,      name_template: "{series} Office Chair",    count: 5, price_range: [149, 699],  cost_ratio: [0.50, 0.62], reorder: {min: 6, max: 30}}
+    - {id: office_desk,  group: Office,      name_template: "{series} Writing Desk",    count: 3, price_range: [249, 999],  cost_ratio: [0.50, 0.62], reorder: {min: 3, max: 12}}
+    - {id: bookcase,     group: Storage,     name_template: "{series} Bookcase",        count: 4, price_range: [199, 799],  cost_ratio: [0.50, 0.62], reorder: {min: 3, max: 12}}
+    - {id: kitchen_cart, group: Storage,     name_template: "{series} Kitchen Cart",    count: 2, price_range: [99, 399],   cost_ratio: [0.45, 0.58], reorder: {min: 4, max: 16}}
+
+behavior:
+  # index 0 = January: Memorial Day (May), July 4th, Labor Day (September), Black Friday (November)
+  seasonality: {monthly_index: [1.0, 0.8, 0.9, 0.9, 1.2, 1.0, 1.1, 0.9, 1.2, 0.9, 1.4, 1.1]}
+  tax_categories: {regular: 0.60, reseller: 0.40}   # trade buyers who resell furniture to their clients

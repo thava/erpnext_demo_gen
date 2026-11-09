@@ -47,13 +47,13 @@ def _run(context, fn):
 
 @click.group("demo-data")
 def demo_data():
-	"""Install, check and remove realistic demo data for ERPNext. India only.
+	"""Install, check and remove realistic demo data for ERPNext. India and the US (Texas).
 
-	The demo is an Indian business: INR prices, Indian customers and suppliers
-	with GSTINs, and GST through india_compliance (which must be installed).
-	--use-wizard-company needs the default company to be Indian (INR).
-
-	For a business not registered for GST, use install --no-gst --force.
+	The pack decides the country. India packs (furniture_store, electrical_distributor):
+	INR prices, customers and suppliers with GSTINs, GST through india_compliance (which
+	must be installed); --no-gst --force for a business not registered for GST. US packs
+	(furniture_store_us): a Texas business selling in Texas, USD, sales and use tax.
+	--use-wizard-company needs the default company in the pack's country and currency.
 	"""
 
 
@@ -76,7 +76,7 @@ def list_packs():
 )
 @click.option("--seed", default=1, show_default=True, type=int, help="Same seed, same data")
 @click.option("--end-date", help="Last day of generated data (default: today)")
-@click.option("--home-state", help="State of the demo company: name, code (TN, KA) or GST state code (33). Default: the pack's, usually TN")
+@click.option("--home-state", help="State of the demo company: name, code (TN, KA) or GST state code (33); US packs: TX only. Default: the pack's")
 @click.option(
 	"--demo-company-name", help="Name for the new demo company (default: generated from the seed)"
 )

@@ -20,6 +20,9 @@ def plan_masters(plan: Plan):
 	suppliers = plan_suppliers(plan)
 	plan_items(plan, families, suppliers)
 	plan_customers(plan)
+	from demo_data.planner.supplies import plan_supply_masters
+
+	plan_supply_masters(plan)  # own-use supplies, when the pack has them
 
 
 # ---------------------------------------------------------------- terms and groups

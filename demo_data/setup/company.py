@@ -41,7 +41,7 @@ def choose_company_name(run: Run, pack: dict) -> str:
 		return run.params.company
 	rng = rng_for(run, "company-name")
 	for _ in range(50):
-		name = naming.company_name(rng, pack["company"]["industry_nouns"], get_locale(pack).company_suffix)
+		name = get_locale(pack).company_name(rng, pack["company"]["industry_nouns"])
 		if not frappe.db.exists("Company", name):
 			return name
 	frappe.throw("Could not find an unused company name; pass --demo-company-name")
@@ -94,7 +94,8 @@ def setup_company(run: Run, pack: dict) -> str:
 	parent_warehouse = frappe.db.get_value(
 		"Warehouse", {"company": company, "is_group": 1, "parent_warehouse": ["is", "not set"]}
 	)
-	for wh in pack["company"]["warehouses"]:
+	supplies_store = (pack.get("supplies") or {}).get("warehouse")
+	for wh in pack["company"]["warehouses"] + ([supplies_store] if supplies_store else []):
 		if frappe.db.exists("Warehouse", f"{wh} - {abbr}"):
 			continue  # created with the company (e.g. Stores); the company owns it
 		run.ensure(

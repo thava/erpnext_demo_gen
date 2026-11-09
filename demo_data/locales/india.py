@@ -56,6 +56,9 @@ class IndiaLocale(Locale):
 	def phone(self, rng: random.Random) -> str:
 		return naming.mobile(rng)
 
+	def company_name(self, rng: random.Random, nouns: list[str]) -> str:
+		return naming.company_name(rng, nouns, self.company_suffix)
+
 	def address(self, rng: random.Random, region: str) -> dict:
 		return geo.make_address(rng, region)
 
@@ -255,6 +258,7 @@ class IndiaLocale(Locale):
 
 	# ---------------------------------------------------------- install parameters
 	required_apps = ("erpnext", "india_compliance")
+	snapshot_install_args = ("--fictitious-gstin",)  # the build site's wizard company has no GSTIN
 	unregistered_warning = (
 		"generating without GST: the company is unregistered, so sales carry no GST and the GST "
 		"paid on purchases becomes part of their cost (no input tax credit). This demo's turnover "
@@ -292,6 +296,8 @@ class IndiaLocale(Locale):
 			if known_hsn:
 				check(hsn in known_hsn, f"{p}.hsn", f"{hsn!r} is not in india_compliance's HSN list")
 			check(f.get("gst_rate") in GST_RATES, f"{p}.gst_rate", f"must be one of {GST_RATES}")
+		values = (pack.get("behavior") or {}).get("gst_categories") or {}
+		check(values and abs(sum(values.values()) - 1) < 1e-6, "behavior.gst_categories", "shares must add up to 1")
 		banking = pack.get("banking") or {}
 		for role in ("main", "collection"):
 			prefix = (banking.get(role) or {}).get("ifsc_prefix") or ""

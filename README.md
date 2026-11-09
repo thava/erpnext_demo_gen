@@ -1,17 +1,19 @@
 # Demo Data
 
-Realistic, removable India demo data for ERPNext v16+.
+Realistic, removable demo data for ERPNext v16+, for India and the United States (Texas).
 
-Status: Phase 1. `install` creates a demo company with its India set-up, masters
-and a year (Small) or two (Medium) of purchases, sales, payments, returns and
-open items; `verify` checks the result; `uninstall` removes it. Packs:
-`furniture_store` and `electrical_distributor`. The requirements and design live
-in the bench folder: `demo-data-req-design.md`.
+Status: Phase 2. `install` creates a demo company with its country's set-up, masters
+and a quarter (Micro), a year (Small) or two (Medium) of purchases, sales, payments,
+returns, open items and own-use supplies; `verify` checks the result; `uninstall`
+removes it. Packs: `furniture_store` and `electrical_distributor` (India),
+`furniture_store_us` (Texas). The requirements and design live in the bench folder:
+`demo-data-req-design.md`.
 
 ## Requirements
 
-frappe and erpnext v16+, india_compliance, a finished setup wizard, and a running
-Redis queue (ERPNext's Transaction Deletion Record needs it).
+frappe and erpnext v16+, a finished setup wizard in the pack's country and currency,
+and a running Redis queue (ERPNext's Transaction Deletion Record needs it). India
+packs also need india_compliance.
 
 ## Usage
 
@@ -111,6 +113,52 @@ Other rules the demo follows:
 - `verify` checks that sales carry no GST and that purchases from registered
   suppliers carry GST rows marked "Valuation and Total".
 
+## United States (Texas)
+
+`furniture_store_us` is a Texas furniture showroom with a trade channel (designers and
+projects). It sells only in Texas, so one combined sales tax rate applies to every sale:
+Texas taxes in-state sales at the seller's location, and a store in a city at the 2%
+local maximum charges 8.25% (6.25% state + 2% local; Austin: 1% city + 1% transit).
+The rate is fixed pack data (`sales_tax` in `us_trading.yaml`), never fetched from a
+tax service; real US businesses usually use one (TaxJar, Avalara), especially when
+they sell into other states. General information, not tax advice.
+
+What the install sets up for the demo company:
+
+```
+accounts        Texas Sales Tax Payable, Texas Use Tax Payable (Duties and Taxes)
+                Sales Tax Paid, Use Tax Expense (Indirect Expenses)
+sales           "TX Sales Tax 8.25%" (default); "TX Exempt Sale" for resellers
+purchases       "TX Resale Purchase (certificate)": stock for resale, no tax
+                "TX Tax Charged 8.25%" (default): own-use bills from Texas sellers
+                "TX Use Tax 8.25%": own-use bills from out-of-state sellers; adds the tax
+                to expense and owes it to Texas (Add and Deduct rows)
+items           "TX Exempt - Food" Item Tax Template (coffee, bottled water)
+categories      Tax Categories "Reseller" and "Out of State", with Tax Rules, so
+                documents you create by hand pick the same templates
+```
+
+Reseller customers carry their Texas resale certificate number in their details and
+buy tax-free; out-of-state suppliers carry the "Out of State" category. ERPNext's own US
+templates (US ST 6% and so on) stay but are no longer the defaults. Payments use Check,
+ACH, Wire Transfer and Card (into the collection account), at made-up account and
+routing numbers; the fiscal year runs January to December.
+
+`--no-gst`, `--fictitious-gstin` and India states are not available with US packs;
+`--home-state` accepts only TX.
+
+## Own-use supplies
+
+Every pack also keeps supplies for its own use, as any business does: copier paper,
+toner, pens, registers, cleaning supplies, tea or coffee, counted in their own
+warehouse ("Office Stores") with reorder levels, plus drinking water billed monthly.
+Each month departments raise a Material Request (Material Issue) and a Stock Entry
+issues it; the cost goes to Print and Stationery or Office Maintenance Expenses when
+issued. When an item reaches its reorder level, a purchase Material Request follows the
+next day, as ERPNext's daily reorder job would raise it (the job itself does not run
+during an install; turn on "Raise Material Request when stock reaches re-order level"
+in Stock Settings to see it work afterwards), then the order, receipt and bill.
+
 ## Banks and payments
 
 The demo banks like a typical Indian SME, with two accounts of its own. It never
@@ -179,8 +227,9 @@ Measured on a laptop (MariaDB in Docker); each submitted transaction takes about
 
 | Pack | Micro (3 months) | Small (12 months) | Medium (24 months) |
 | --- | --- | --- | --- |
-| furniture_store | about 230 documents, 1 minute | about 1,000 documents, 4 minutes | about 18,000 documents, 1.5 hours |
-| electrical_distributor | about 280 documents, 1.2 minutes | about 1,300 documents, 5.5 minutes | about 20,000 documents, about 1.5 hours (estimate) |
+| furniture_store | about 290 documents, 1.2 minutes | about 1,200 documents, 5 minutes | about 18,500 documents, 1.5 hours |
+| electrical_distributor | about 320 documents, 1.4 minutes | about 1,500 documents, 6 minutes | about 23,500 documents, about 2 hours (estimate) |
+| furniture_store_us | about 300 documents, 1 minute | about 1,200 documents, 5 minutes | about 19,000 documents (run in progress) |
 
 **Micro** is for quick tests and reproducing bugs, not for demos: few customers and
 items, one quarter of data. It still covers every feature the demo has (quotations

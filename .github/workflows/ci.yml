@@ -1,8 +1,8 @@
 name: CI
 
 # Every push and pull request: unit tests and a micro smoke test per pack (install,
-# verify, uninstall, compare table counts). Nightly: Small snapshots for both packs
-# too. Weekly or on request: one Medium snapshot, electrical_distributor in even ISO
+# verify, uninstall, compare table counts), India and US. Nightly: Small snapshots for
+# every pack too. Weekly or on request: one Medium snapshot, electrical_distributor in even ISO
 # weeks and furniture_store in odd ones. Every snapshot a run builds is restored on
 # a new site and verified, then kept as a build artifact. A failure means ERPNext,
 # india_compliance or this app has drifted (requirement M-13).
@@ -67,6 +67,9 @@ jobs:
       - name: Smoke test, electrical_distributor micro
         working-directory: ${{ env.BENCH }}
         run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" electrical_distributor micro 1
+      - name: Smoke test, furniture_store_us micro (US site)
+        working-directory: ${{ env.BENCH }}
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" furniture_store_us micro 1 ci-us.localhost
 
   snapshots:
     name: Snapshots
@@ -92,7 +95,7 @@ jobs:
       - name: Small snapshots
         working-directory: ${{ env.BENCH }}
         run: |
-          for pack in furniture_store electrical_distributor; do
+          for pack in furniture_store electrical_distributor furniture_store_us; do
             bench demo-data snapshot build --pack "$pack" --size small \
               --db-root-password "$DB_ROOT_PASSWORD" --mariadb-user-host-login-scope '%'
           done

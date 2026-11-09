@@ -132,6 +132,11 @@ def item(p, w, pd):
 	while frappe.db.exists("Item", code):  # someone else's item with our code
 		n += 1
 		code = f"{p.code}-{n}"
+	warehouse = _warehouse(p, w)
+	defaults = {"company": w.company, "default_warehouse": warehouse}
+	if p.get("expense_account"):  # own-use supplies: expensed when issued (stock) or billed
+		defaults["expense_account"] = _account(w.company, p.expense_account)
+	is_stock = p.get("is_stock", 1)
 	return insert(
 		frappe.get_doc(
 			{
@@ -141,23 +146,31 @@ def item(p, w, pd):
 				"description": p.name,
 				"item_group": p.group,
 				"stock_uom": p.uom,
-				"is_stock_item": 1,
+				"is_stock_item": is_stock,
+				"is_sales_item": p.get("is_sales_item", 1),
 				"include_item_in_manufacturing": 0,
 				"valuation_rate": p.cost,
 				**w.locale.item_fields(p, w),
-				"item_defaults": [{"company": w.company, "default_warehouse": w.default_warehouse}],
+				"item_defaults": [defaults],
 				"supplier_items": [{"supplier": s} for s in p.suppliers],
 				"reorder_levels": [
 					{
-						"warehouse": w.default_warehouse,
+						"warehouse": warehouse,
 						"warehouse_reorder_level": p.reorder["min"],
 						"warehouse_reorder_qty": p.reorder["max"] - p.reorder["min"],
 						"material_request_type": "Purchase",
 					}
-				],
+				]
+				if is_stock and p.get("reorder")
+				else [],
 			}
 		)
 	)
+
+
+def _warehouse(p, w) -> str:
+	"""The planned warehouse (pack name, e.g. "Office Stores") or the company default."""
+	return f"{p.warehouse} - {w.abbr}" if p.get("warehouse") else w.default_warehouse
 
 
 def item_price(p, w, pd):
@@ -216,10 +229,10 @@ def _save(doc, pd, submit=True, fill_taxes=False, tax_inclusive=False):
 	return doc
 
 
-def _lines(lines, w, date_field=None, when=None):
+def _lines(lines, w, date_field=None, when=None, warehouse=None):
 	rows = []
 	for line in lines:
-		row = {"item_code": line["item"], "qty": line["qty"], "warehouse": w.default_warehouse}
+		row = {"item_code": line["item"], "qty": line["qty"], "warehouse": warehouse or w.default_warehouse}
 		if line.get("rate") is not None:
 			row["rate"] = line["rate"]
 		if date_field:
@@ -264,14 +277,47 @@ def material_request(p, w, pd):
 	doc = frappe.get_doc(
 		{
 			"doctype": "Material Request",
-			"material_request_type": "Purchase",
+			"material_request_type": p.get("type") or "Purchase",
 			"company": w.company,
 			"schedule_date": p.schedule_date,
 			"items": _lines(
-				[{**line, "rate": None} for line in p.lines], w, "schedule_date", p.schedule_date
+				[{**line, "rate": None} for line in p.lines],
+				w,
+				"schedule_date",
+				p.schedule_date,
+				warehouse=_warehouse(p, w),
 			),
 		}
 	)
+	if p.get("department"):  # a staff request from a department
+		doc.title = f"{p.department}: supplies"
+	return _save(doc, pd)
+
+
+def stock_issue(p, w, pd):
+	"""Issue a staff request's supplies from their store (Stock Entry, Material Issue);
+	the cost goes to the items' expense account."""
+	from erpnext.stock.doctype.material_request.material_request import make_stock_entry
+
+	doc = make_stock_entry(p.material_request)
+	qty = {line["item"]: line["qty"] for line in p.lines}
+	for row in doc.items:
+		row.qty = qty.get(row.item_code, row.qty)
+		row.transfer_qty = row.qty * (row.conversion_factor or 1)
+	_dated(doc, pd)
+	return _save(doc, pd)
+
+
+def purchase_invoice_from_order(p, w, pd):
+	"""A bill straight from the order, for non-stock consumables (nothing to receive)."""
+	from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_invoice
+
+	doc = make_purchase_invoice(p.purchase_order)
+	doc.bill_no = p.bill_no
+	doc.bill_date = pd.posting_date
+	_dated(doc, pd)
+	doc.due_date = frappe.utils.add_days(pd.posting_date, 30)
+	doc.payment_schedule = []
 	return _save(doc, pd)
 
 
@@ -291,7 +337,7 @@ def purchase_order(p, w, pd):
 				"supplier": p.supplier,
 				"company": w.company,
 				"schedule_date": p.schedule_date,
-				"items": _lines(p.lines, w, "schedule_date", p.schedule_date),
+				"items": _lines(p.lines, w, "schedule_date", p.schedule_date, warehouse=_warehouse(p, w)),
 			}
 		)
 	doc.schedule_date = p.schedule_date

@@ -12,7 +12,7 @@ from frappe.utils import flt, getdate
 
 from demo_data.registry import DONE_STATES, Run
 
-TOLERANCE = 1.0  # rupees; rounding across hundreds of documents
+TOLERANCE = 1.0  # currency units; rounding across hundreds of documents
 
 # documents a run creates itself; anything else of these types in the demo company is unregistered
 REGISTERED_DOCTYPES = (
@@ -21,6 +21,7 @@ REGISTERED_DOCTYPES = (
 	"Delivery Note",
 	"Sales Invoice",
 	"Material Request",
+	"Stock Entry",
 	"Purchase Order",
 	"Purchase Receipt",
 	"Purchase Invoice",
@@ -70,11 +71,12 @@ def verify_run(run: Run) -> list[Check]:
 		check_payables,
 		check_stock,
 		check_no_pending_reposts,
-		check_tax_rows,
+		check_taxes,
 		check_registry,
 		check_coverage,
 		check_reports,
 		check_banking,
+		check_supplies,
 	):
 		try:
 			result = fn(ctx)
@@ -187,6 +189,67 @@ def check_no_pending_reposts(ctx) -> Check:
 		{"company": ctx.company, "status": ["in", ("Queued", "In Progress", "Failed")]},
 	)
 	return Check("no pending stock reposts", not n, f"{n} queued or failed")
+
+
+def pack_locale(ctx) -> str:
+	"""The run's pack locale code (packs without one are India)."""
+	from demo_data.packs import load_pack
+
+	return (load_pack(ctx.run.params.pack).get("locale") or "IN").upper()
+
+
+def check_taxes(ctx) -> list[Check]:
+	"""The country's tax checks: India GST rows (check_tax_rows), US Texas sales and use tax."""
+	if pack_locale(ctx) == "US":
+		return check_us_taxes(ctx)
+	return [check_tax_rows(ctx)]
+
+
+def check_us_taxes(ctx) -> list[Check]:
+	"""Texas (design 5.14): regular customers pay the sales tax, resellers with a
+	certificate on file pay none, deliveries ship to Texas, stock for resale is bought
+	tax-free."""
+	from demo_data.locales.us import TAX_CATEGORY_RESELLER
+
+	sales = frappe.db.sql(
+		"""select d.name, d.customer, ifnull(c.tax_category, '') category, ifnull(c.customer_details, '') details,
+			d.total_taxes_and_charges tax
+		from `tabSales Invoice` d join `tabCustomer` c on c.name = d.customer
+		where d.company = %s and d.docstatus = 1 and d.is_return = 0""",
+		ctx.company,
+		as_dict=True,
+	)
+	untaxed = [s.name for s in sales if s.category != TAX_CATEGORY_RESELLER and flt(s.tax) <= 0]
+	taxed_resale = [s.name for s in sales if s.category == TAX_CATEGORY_RESELLER and flt(s.tax) != 0]
+	no_certificate = sorted({s.customer for s in sales if flt(s.tax) == 0 and "resale certificate" not in s.details})
+	resellers = sum(s.category == TAX_CATEGORY_RESELLER for s in sales)
+	sales_check = Check(
+		"sales tax: regular customers taxed, resellers exempt with a certificate",
+		not (untaxed or taxed_resale or no_certificate),
+		f"{len(sales) - resellers} taxed, {resellers} to resellers"
+		+ (f"; untaxed: {untaxed[:5]}" if untaxed else "")
+		+ (f"; taxed resale: {taxed_resale[:5]}" if taxed_resale else "")
+		+ (f"; no certificate: {no_certificate[:5]}" if no_certificate else ""),
+	)
+	outside = frappe.db.sql_list(
+		"""select dn.name from `tabDelivery Note` dn left join `tabAddress` a on a.name = dn.shipping_address_name
+		where dn.company = %s and dn.docstatus = 1 and ifnull(a.state, '') != 'Texas'""",
+		ctx.company,
+	)
+	shipping = Check("deliveries ship to Texas addresses", not outside, f"outside Texas: {outside[:5]}" if outside else "")
+	resale_taxed = frappe.db.sql_list(
+		"""select pi.name from `tabPurchase Invoice` pi
+		where pi.company = %s and pi.docstatus = 1 and pi.total_taxes_and_charges != 0
+		and not exists (select 1 from `tabPurchase Invoice Item` i join `tabItem` it on it.name = i.item_code
+			where i.parent = pi.name and it.is_sales_item = 0)""",
+		ctx.company,
+	)
+	purchases = Check(
+		"stock for resale bought tax-free (resale certificate)",
+		not resale_taxed,
+		f"resale bills with tax: {resale_taxed[:5]}" if resale_taxed else "",
+	)
+	return [sales_check, shipping, purchases]
 
 
 def check_tax_rows(ctx) -> Check:
@@ -324,7 +387,12 @@ def check_banking(ctx) -> list[Check]:
 		as_dict=True,
 	)
 	pack = load_pack(ctx.run.params.pack)
-	planned = planned_mode_names(pack["banking"])
+	if (pack.get("locale") or "IN").upper() == "IN":
+		planned = planned_mode_names(pack["banking"])  # India's counter modes are the default
+	else:
+		from demo_data.locales import get_locale
+
+		planned = planned_mode_names(pack["banking"], get_locale(pack).counter_modes)
 	parties = [p for p in payments if p.payment_type != "Internal Transfer"]
 	used = {p.mode_of_payment for p in parties}
 	modes = Check(
@@ -384,3 +452,61 @@ def check_banking(ctx) -> list[Check]:
 		", ".join(f"{role}: {n} rows" for role, n in rows.items()),
 	)
 	return [modes, consistent, swept, report]
+
+
+def check_supplies(ctx) -> list[Check]:
+	"""Own-use supplies (design 5.15): issues are expensed, and every stocked supply at or
+	below its reorder level has a purchase request or order still open. Only for runs
+	that planned supplies."""
+	items = frappe.db.sql_list(
+		"""select ref_name from `tabDemo Data Record`
+		where run = %s and ref_doctype = 'Item' and plan_key like 'M:supply:item:%%'""",
+		ctx.run.name,
+	)
+	if not items:
+		return []
+	issues = frappe.db.sql(
+		"""select d.item_code, d.expense_account, a.root_type, se.posting_date
+		from `tabStock Entry` se join `tabStock Entry Detail` d on d.parent = se.name
+		left join `tabAccount` a on a.name = d.expense_account
+		where se.company = %s and se.docstatus = 1 and se.stock_entry_type = 'Material Issue'""",
+		ctx.company,
+		as_dict=True,
+	)
+	not_expensed = sorted({i.item_code for i in issues if i.root_type != "Expense"})
+	expensed = Check(
+		"supply issues are expensed",
+		bool(issues) and not not_expensed,
+		f"{len(issues)} issue lines" + (f"; not to an expense account: {not_expensed}" if not_expensed else ""),
+	)
+	last_issue = {}
+	for i in issues:
+		last_issue[i.item_code] = max(last_issue.get(i.item_code, i.posting_date), i.posting_date)
+	low = frappe.db.sql(
+		"""select r.parent item, r.warehouse_reorder_level level, ifnull(b.actual_qty, 0) qty
+		from `tabItem Reorder` r left join `tabBin` b on b.item_code = r.parent and b.warehouse = r.warehouse
+		where r.parent in %(items)s and ifnull(b.actual_qty, 0) <= r.warehouse_reorder_level""",
+		{"items": items},
+		as_dict=True,
+	)
+	unordered = []
+	for row in low:
+		if last_issue.get(row.item) and getdate(last_issue[row.item]) >= getdate(ctx.end):
+			continue  # dropped on the last day; the reorder would come tomorrow
+		pending = frappe.db.sql(
+			"""select 1 from `tabMaterial Request Item` i join `tabMaterial Request` m on m.name = i.parent
+			where i.item_code = %(item)s and m.docstatus = 1 and m.material_request_type = 'Purchase'
+				and ifnull(i.received_qty, 0) < i.qty
+			union all
+			select 1 from `tabPurchase Order Item` i join `tabPurchase Order` o on o.name = i.parent
+			where i.item_code = %(item)s and o.docstatus = 1 and ifnull(i.received_qty, 0) < i.qty""",
+			{"item": row.item},
+		)
+		if not pending:
+			unordered.append(f"{row.item} ({row.qty:g} <= {row.level:g})")
+	reorder = Check(
+		"supplies at their reorder level are on order",
+		not unordered,
+		f"{len(low)} at or below the level" + (f"; not on order: {unordered}" if unordered else ""),
+	)
+	return [expensed, reorder]

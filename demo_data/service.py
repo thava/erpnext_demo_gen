@@ -111,6 +111,7 @@ def resolve_params(
 		given, home_state = home_state, locale.resolve_region(home_state)
 		if not home_state:
 			raise DemoDataError(f"Unknown state {given!r}; use a name or code: {choices}")
+	locale.check_options(no_gst, fictitious_gstin)
 	if size not in pack["sizes"]:
 		raise DemoDataError(f"Unknown size {size!r}; choose one of {', '.join(pack['sizes'])}")
 	params = {
@@ -154,7 +155,7 @@ def resolve_params(
 		raise DemoDataError(
 			f"Company {company!r} already exists; pick another --demo-company-name or use --use-wizard-company"
 		)
-	if params["home_state"] not in locale.regions():
+	if params["home_state"] not in locale.home_regions():
 		raise DemoDataError(f"No curated cities for {params['home_state']} yet; choose one of: {choices}")
 	return pack, params
 

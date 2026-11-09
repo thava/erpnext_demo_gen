@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Set up a Frappe v16 bench with erpnext, india_compliance and this app, and a site
-# with the setup wizard completed. Used by every CI job (.github/workflows/ci.yml).
+# Set up a Frappe v16 bench with erpnext, india_compliance and this app, and two sites
+# with the setup wizard completed: $SITE (India, with india_compliance) and $US_SITE
+# (United States, erpnext and this app only). Used by every CI job (.github/workflows/ci.yml).
 #
 # Expects MariaDB on 127.0.0.1:3306 (root password $DB_ROOT_PASSWORD) and Redis on
 # 127.0.0.1:6379, both as service containers. The app's checkout is $GITHUB_WORKSPACE.
@@ -8,6 +9,7 @@ set -euo pipefail
 
 BENCH=${BENCH:-$HOME/frappe-bench}
 SITE=${SITE:-ci.localhost}
+US_SITE=${US_SITE:-ci-us.localhost}
 BRANCH=${FRAPPE_BRANCH:-version-16}
 DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-root}
 
@@ -42,4 +44,13 @@ bench --site "$SITE" execute demo_data.snapshot.complete_setup \
 	--kwargs '{"pack": "furniture_store", "company": "CI Base Company Pvt Ltd"}'
 done_step
 
-echo "bench ready: $BENCH, site $SITE"
+step "new site $US_SITE"
+bench new-site "$US_SITE" --db-root-password "$DB_ROOT_PASSWORD" --admin-password admin \
+	--mariadb-user-host-login-scope='%' \
+	--install-app erpnext --install-app demo_data
+bench --site "$US_SITE" set-config allow_tests true
+bench --site "$US_SITE" execute demo_data.snapshot.complete_setup \
+	--kwargs '{"pack": "furniture_store_us", "company": "CI Base Company LLC"}'
+done_step
+
+echo "bench ready: $BENCH, sites $SITE and $US_SITE"

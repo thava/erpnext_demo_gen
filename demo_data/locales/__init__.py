@@ -37,6 +37,10 @@ class Locale:
 	def phone(self, rng: random.Random) -> str:
 		raise NotImplementedError
 
+	def company_name(self, rng: random.Random, nouns: list[str]) -> str:
+		"""The demo company's own name (with company_suffix)."""
+		raise NotImplementedError
+
 	def address(self, rng: random.Random, region: str) -> dict:
 		"""Address fields for a random place in the region."""
 		raise NotImplementedError
@@ -143,6 +147,7 @@ class Locale:
 
 	# ---------------------------------------------------------- install parameters
 	required_apps: tuple[str, ...] = ("erpnext",)
+	snapshot_install_args: tuple[str, ...] = ()  # extra `install` options for a snapshot's wizard company
 	unregistered_warning = ""  # shown (and needing --force) when installing unregistered
 
 	def preflight_problems(self) -> list[str]:
@@ -154,8 +159,15 @@ class Locale:
 		raise NotImplementedError
 
 	def region_choices(self) -> str:
-		"""The supported regions, for error messages."""
+		"""The supported home regions, for error messages."""
 		raise NotImplementedError
+
+	def home_regions(self) -> list[str]:
+		"""Regions a demo company can be based in."""
+		return self.regions()
+
+	def check_options(self, unregistered: bool, fictitious_id: bool):
+		"""Refuse install options that do not apply to the country."""
 
 	def validate_pack(self, pack: dict, check):
 		"""Country-specific pack checks; check(ok, path, message) records an error."""
@@ -178,10 +190,14 @@ def get_locale(code_or_pack: str | dict | None = None) -> Locale:
 			from demo_data.locales.india import IndiaLocale
 
 			_LOCALES[code] = IndiaLocale()
+		elif code == "US":
+			from demo_data.locales.us import USLocale
+
+			_LOCALES[code] = USLocale()
 		else:
-			raise KeyError(f"unknown locale {code!r}; known: IN")
+			raise KeyError(f"unknown locale {code!r}; known: {', '.join(known_locales())}")
 	return _LOCALES[code]
 
 
 def known_locales() -> tuple[str, ...]:
-	return ("IN",)
+	return ("IN", "US")
