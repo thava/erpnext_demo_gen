@@ -4,7 +4,7 @@ Not a unit test (it commits and takes minutes), so it is not named test_*.py.
 Run it on a disposable site that already has some non-demo data, e.g.:
 
     bench --site demo-data.localhost execute demo_data.tests.smoke.run \
-        --kwargs '{"pack": "furniture_store", "seed": 11}'
+        --kwargs '{"country": "IN", "pack": "furniture_store", "seed": 11}'
 
 It snapshots row counts of the tables a demo touches, installs, runs verify,
 uninstalls, and fails if any count differs from the snapshot (M-9 gate) or if
@@ -70,7 +70,8 @@ def snapshot() -> dict:
 
 
 def run(
-	pack: str = "furniture_store",
+	country: str | None = None,
+	pack: str | None = None,
 	size: str = "micro",
 	seed: int = 11,
 	end_date: str | None = None,
@@ -82,6 +83,8 @@ def run(
 	from demo_data import service
 
 	before = snapshot()
+	if not country:
+		raise ValueError('pass the country explicitly, e.g. "country": "IN"')
 	run_doc = service.install(
 		pack,
 		size,
@@ -91,6 +94,7 @@ def run(
 		force=True,
 		no_gst=no_gst,
 		fictitious_gstin=fictitious_gstin,
+		country=country,
 	)
 	_, checks = service.verify(run_doc.name)
 	failed = [c for c in checks if not c.ok]

@@ -4,6 +4,7 @@
 schema_version: 1
 id: india_trading
 locale: IN                         # country: tax, addresses, names, fiscal year (demo_data/locales)
+default_pack: furniture_store       # installed by --country IN when no --pack is given
 abstract: true
 pack_version: 1
 title: India Trading (base)

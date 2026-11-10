@@ -1,12 +1,12 @@
 # Demo Data
 
-Realistic, removable demo data for ERPNext v16+, for India and the United States (Texas).
+Realistic, removable demo data for ERPNext v16+, for India, the United States (Texas) and the United Arab Emirates (Dubai).
 
 Status: Phase 2. `install` creates a demo company with its country's set-up, masters
 and a quarter (Micro), a year (Small) or two (Medium) of purchases, sales, payments,
 returns, open items and own-use supplies; `verify` checks the result; `uninstall`
-removes it. Packs: `furniture_store` and `electrical_distributor` (India),
-`furniture_store_us` (Texas). The requirements and design live in the bench folder:
+removes it. Packs: `furniture_store` (India, US, UAE) and `electrical_distributor`
+(India). The requirements and design live in the bench folder:
 `demo-data-req-design.md`.
 
 ## Requirements
@@ -18,18 +18,25 @@ packs also need india_compliance.
 ## Usage
 
 ```bash
-bench --site <site> demo-data list-packs
-bench --site <site> demo-data install --pack furniture_store [--size micro|small|medium] [--seed N] \
-      [--end-date YYYY-MM-DD] [--home-state TN] [--demo-company-name NAME] [--use-wizard-company]
+bench --site <site> demo-data list-packs                      # packs, their countries and sizes
+bench --site <site> demo-data install --country IN|US|AE [--pack furniture_store] [--size micro|small|medium] \
+      [--seed N] [--end-date YYYY-MM-DD] [--home-state TN] [--demo-company-name NAME] [--use-wizard-company]
       [--no-gst | --fictitious-gstin] [--force]
 bench --site <site> demo-data status                          # what is installed now
 bench --site <site> demo-data history [--run DD-RUN-00001]     # install/uninstall events, newest first
 bench --site <site> demo-data verify [--run DD-RUN-00001]      # exits 1 if a check fails
 bench --site <site> demo-data uninstall [--run DD-RUN-00001] [--registry-only] [--no-backup] [--yes]
-bench demo-data snapshot build --pack furniture_store [--size small]   # see Snapshots
+bench demo-data snapshot build --country IN|US|AE [--pack furniture_store] [--size small]   # see Snapshots
 bench demo-data snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
 ```
 
+- `--country` is required for `install` and `snapshot build`: there is no default, so
+  the country is always a deliberate choice. It takes a code or a name, ignoring case,
+  spaces and hyphens (`IN`, `india`, `US`, `USA`, `"United States"`, `united-states`,
+  `AE`, `UAE`, `united-arab-emirates`).
+  `--pack` is optional: each country has a default pack (`list-packs` shows them).
+  A pack can exist for several countries (`furniture_store` is IN and US); the country
+  is never part of the pack name.
 - Demo data goes into its own Company, made the default and registered as ERPNext's
   demo company, so the desk's **Delete Demo Data** button removes it too.
 - `install` refuses a site that already has transactions, or has the GST API on,
@@ -115,7 +122,7 @@ Other rules the demo follows:
 
 ## United States (Texas)
 
-`furniture_store_us` is a Texas furniture showroom with a trade channel (designers and
+`--country US` (pack `furniture_store`) is a Texas furniture showroom with a trade channel (designers and
 projects). It sells only in Texas, so one combined sales tax rate applies to every sale:
 Texas taxes in-state sales at the seller's location, and a store in a city at the 2%
 local maximum charges 8.25% (6.25% state + 2% local; Austin: 1% city + 1% transit).
@@ -146,6 +153,30 @@ routing numbers; the fiscal year runs January to December.
 
 `--no-gst`, `--fictitious-gstin` and India states are not available with US packs;
 `--home-state` accepts only TX.
+
+## United Arab Emirates (Dubai)
+
+`--country AE` (pack `furniture_store`) is a VAT-registered Dubai furniture showroom with a
+trade channel (fit-out, hospitality, projects), using ERPNext's own UAE set-up:
+
+```
+VAT             5% on sales and purchases ("UAE VAT 5%", made the default templates),
+                with input credit; shelf prices include VAT (UAE consumer rules)
+VAT Emirate     each sale's VAT Emirate (VAT 201 boxes 1a-1g) is fetched from the
+                company address's Emirate field, which the install sets to Dubai
+recoverable     every purchase bill records its VAT as "Recoverable Standard Rated
+                Expenses" (VAT 201 box 9)
+UAE VAT Settings  lists the company's VAT account (reverse charge and VAT 201 use it)
+parties         TRNs (15 digits) for VAT-registered businesses; emirates as states,
+                P.O. Boxes, +971 numbers
+banking         Emirates NBD and Mashreq accounts with valid-format IBANs; wire
+                transfer, cheque, card (collection account) and cash; AED
+```
+
+`verify` runs ERPNext's UAE VAT 201 report and checks that boxes 1 and 9 match the
+invoices. Out of scope: imports and reverse charge, zero-rated exports, tourist refunds,
+excise, designated zones. `--home-state` takes an emirate (DU, AZ, SH, AJ, RK, FU, UQ or
+the name). General information, not tax advice.
 
 ## Own-use supplies
 
@@ -228,8 +259,9 @@ Measured on a laptop (MariaDB in Docker); each submitted transaction takes about
 | Pack | Micro (3 months) | Small (12 months) | Medium (24 months) |
 | --- | --- | --- | --- |
 | furniture_store | about 290 documents, 1.2 minutes | about 1,200 documents, 5 minutes | about 18,500 documents, 1.5 hours |
-| electrical_distributor | about 320 documents, 1.4 minutes | about 1,500 documents, 6 minutes | about 23,500 documents, about 2 hours (estimate) |
-| furniture_store_us | about 300 documents, 1 minute | about 1,200 documents, 5 minutes | about 19,000 documents (run in progress) |
+| electrical_distributor | about 320 documents, 1.4 minutes | about 1,500 documents, 6 minutes | about 23,300 documents, 2 to 2.5 hours |
+| furniture_store (US) | about 300 documents, 1 minute | about 1,200 documents, 5 minutes | about 19,000 documents, 1.7 hours |
+| furniture_store (AE) | about 300 documents, 1 minute | about 1,200 documents, 5 minutes | about 19,000 documents (planned) |
 
 **Micro** is for quick tests and reproducing bugs, not for demos: few customers and
 items, one quarter of data. It still covers every feature the demo has (quotations
@@ -254,7 +286,7 @@ site is disposable: explore it, then drop it with `bench drop-site`.
 
 ```bash
 # build (on a throwaway site: setup wizard, install, verify, back up, drop)
-bench demo-data snapshot build --pack furniture_store --size small \
+bench demo-data snapshot build --country IN --pack furniture_store --size small \
       --db-root-password ... [--mariadb-user-host-login-scope '%']
 
 # create a new site from it

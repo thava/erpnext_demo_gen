@@ -191,114 +191,13 @@ def check_no_pending_reposts(ctx) -> Check:
 	return Check("no pending stock reposts", not n, f"{n} queued or failed")
 
 
-def pack_locale(ctx) -> str:
-	"""The run's pack locale code (packs without one are India)."""
+def check_taxes(ctx) -> list[Check]:
+	"""The country's tax checks, from the pack's locale (India: GST rows; US: Texas sales
+	and use tax; UAE: VAT and the VAT 201 report)."""
+	from demo_data.locales import get_locale
 	from demo_data.packs import load_pack
 
-	return (load_pack(ctx.run.params.pack).get("locale") or "IN").upper()
-
-
-def check_taxes(ctx) -> list[Check]:
-	"""The country's tax checks: India GST rows (check_tax_rows), US Texas sales and use tax."""
-	if pack_locale(ctx) == "US":
-		return check_us_taxes(ctx)
-	return [check_tax_rows(ctx)]
-
-
-def check_us_taxes(ctx) -> list[Check]:
-	"""Texas (design 5.14): regular customers pay the sales tax, resellers with a
-	certificate on file pay none, deliveries ship to Texas, stock for resale is bought
-	tax-free."""
-	from demo_data.locales.us import TAX_CATEGORY_RESELLER
-
-	sales = frappe.db.sql(
-		"""select d.name, d.customer, ifnull(c.tax_category, '') category, ifnull(c.customer_details, '') details,
-			d.total_taxes_and_charges tax
-		from `tabSales Invoice` d join `tabCustomer` c on c.name = d.customer
-		where d.company = %s and d.docstatus = 1 and d.is_return = 0""",
-		ctx.company,
-		as_dict=True,
-	)
-	untaxed = [s.name for s in sales if s.category != TAX_CATEGORY_RESELLER and flt(s.tax) <= 0]
-	taxed_resale = [s.name for s in sales if s.category == TAX_CATEGORY_RESELLER and flt(s.tax) != 0]
-	no_certificate = sorted({s.customer for s in sales if flt(s.tax) == 0 and "resale certificate" not in s.details})
-	resellers = sum(s.category == TAX_CATEGORY_RESELLER for s in sales)
-	sales_check = Check(
-		"sales tax: regular customers taxed, resellers exempt with a certificate",
-		not (untaxed or taxed_resale or no_certificate),
-		f"{len(sales) - resellers} taxed, {resellers} to resellers"
-		+ (f"; untaxed: {untaxed[:5]}" if untaxed else "")
-		+ (f"; taxed resale: {taxed_resale[:5]}" if taxed_resale else "")
-		+ (f"; no certificate: {no_certificate[:5]}" if no_certificate else ""),
-	)
-	outside = frappe.db.sql_list(
-		"""select dn.name from `tabDelivery Note` dn left join `tabAddress` a on a.name = dn.shipping_address_name
-		where dn.company = %s and dn.docstatus = 1 and ifnull(a.state, '') != 'Texas'""",
-		ctx.company,
-	)
-	shipping = Check("deliveries ship to Texas addresses", not outside, f"outside Texas: {outside[:5]}" if outside else "")
-	resale_taxed = frappe.db.sql_list(
-		"""select pi.name from `tabPurchase Invoice` pi
-		where pi.company = %s and pi.docstatus = 1 and pi.total_taxes_and_charges != 0
-		and not exists (select 1 from `tabPurchase Invoice Item` i join `tabItem` it on it.name = i.item_code
-			where i.parent = pi.name and it.is_sales_item = 0)""",
-		ctx.company,
-	)
-	purchases = Check(
-		"stock for resale bought tax-free (resale certificate)",
-		not resale_taxed,
-		f"resale bills with tax: {resale_taxed[:5]}" if resale_taxed else "",
-	)
-	return [sales_check, shipping, purchases]
-
-
-def check_tax_rows(ctx) -> Check:
-	"""GST rows match the company's registration.
-
-	Registered (F-16): every submitted sale and every purchase from a GST-registered
-	supplier carries GST rows, except zero-rated SEZ and export supplies made without
-	GST (under a bond). Unregistered (--no-gst): sales carry none, and those
-	purchases carry GST as part of cost ("Valuation and Total"), since no credit can
-	be claimed.
-	"""
-	registered = ctx.run.params.get("gst", "registered") == "registered"
-	wrong = []
-	sales_rows = "exists" if registered else "not exists"
-	# SEZ and export supplies are zero-rated: without "export with GST" (supply under a
-	# bond, LUT) they rightly carry no GST rows, so the registered check skips them
-	zero_rated = (
-		"and not (d.gst_category in ('SEZ', 'Overseas') and ifnull(d.is_export_with_gst, 0) = 0)" if registered else ""
-	)
-	for doctype in ("Quotation", "Sales Order", "Sales Invoice"):
-		wrong += frappe.db.sql_list(
-			f"""select d.name from `tab{doctype}` d where d.company=%s and d.docstatus=1 {zero_rated}
-			and not {sales_rows} (select 1 from `tabSales Taxes and Charges` t where t.parent=d.name)""",
-			(ctx.company,),
-		)
-	cost_only = "" if registered else "and t.category = 'Valuation and Total'"
-	for doctype in ("Purchase Order", "Purchase Invoice"):
-		wrong += frappe.db.sql_list(
-			f"""select d.name from `tab{doctype}` d join tabSupplier s on s.name=d.supplier
-			where d.company=%s and d.docstatus=1 and s.gst_category != 'Unregistered'
-			and not exists (select 1 from `tabPurchase Taxes and Charges` t
-				where t.parent=d.name {cost_only})""",
-			(ctx.company,),
-		)
-	if wrong and ctx.run.params.get("use_wizard_company"):
-		# the wizard company also holds the user's own documents; judge only the run's
-		ours = set(
-			frappe.get_all(
-				"Demo Data Record", filters={"run": ctx.run.name, "ref_name": ["in", wrong]}, pluck="ref_name"
-			)
-		)
-		wrong = [name for name in wrong if name in ours]
-	if registered:
-		return Check("taxable documents have GST rows", not wrong, ", ".join(wrong[:5]) or "all present")
-	return Check(
-		"no GST on sales, purchase GST in cost (unregistered)",
-		not wrong,
-		", ".join(wrong[:5]) or "all as expected",
-	)
+	return get_locale(load_pack(ctx.run.params.pack)).tax_checks(ctx)
 
 
 def check_registry(ctx) -> list[Check]:
@@ -386,13 +285,10 @@ def check_banking(ctx) -> list[Check]:
 		ctx.run.name,
 		as_dict=True,
 	)
-	pack = load_pack(ctx.run.params.pack)
-	if (pack.get("locale") or "IN").upper() == "IN":
-		planned = planned_mode_names(pack["banking"])  # India's counter modes are the default
-	else:
-		from demo_data.locales import get_locale
+	from demo_data.locales import get_locale
 
-		planned = planned_mode_names(pack["banking"], get_locale(pack).counter_modes)
+	pack = load_pack(ctx.run.params.pack)
+	planned = planned_mode_names(pack["banking"], get_locale(pack).counter_modes)
 	parties = [p for p in payments if p.payment_type != "Internal Transfer"]
 	used = {p.mode_of_payment for p in parties}
 	modes = Check(

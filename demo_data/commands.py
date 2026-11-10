@@ -1,14 +1,14 @@
 """bench --site <site> demo-data ...
 
     demo-data list-packs
-    demo-data install --pack furniture_store [--size micro|small|medium] [--seed N] [--end-date YYYY-MM-DD]
+    demo-data install --country IN|US|AE [--pack furniture_store] [--size micro|small|medium] [--seed N] [--end-date YYYY-MM-DD]
                       [--home-state TN] [--demo-company-name NAME] [--use-wizard-company]
                       [--no-gst | --fictitious-gstin] [--force]
     demo-data status
     demo-data history [--run DD-RUN-00001] [--limit 10]
     demo-data verify [--run DD-RUN-00001]
     demo-data uninstall [--run DD-RUN-00001] [--registry-only] [--no-backup]
-    demo-data snapshot build --pack furniture_store [--size small] [--seed N]
+    demo-data snapshot build --country IN|US|AE [--pack furniture_store] [--size small] [--seed N]
     demo-data snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
 
 Thin wrappers over demo_data.service (M-13).
@@ -18,6 +18,9 @@ import click
 from frappe.commands import get_site, pass_context
 
 from demo_data.packs import SIZES
+
+COUNTRY_HELP = 'Country of the demo (required): IN, US or AE, or the name, e.g. India, "United States", UAE (case, spaces and hyphens ignored)'
+PACK_HELP = "Pack name (see list-packs). Default: the country's default pack"
 
 
 def _connect(context):
@@ -49,24 +52,42 @@ def _run(context, fn):
 def demo_data():
 	"""Install, check and remove realistic demo data for ERPNext. India and the US (Texas).
 
-	The pack decides the country. India packs (furniture_store, electrical_distributor):
-	INR prices, customers and suppliers with GSTINs, GST through india_compliance (which
-	must be installed); --no-gst --force for a business not registered for GST. US packs
-	(furniture_store_us): a Texas business selling in Texas, USD, sales and use tax.
-	--use-wizard-company needs the default company in the pack's country and currency.
+	install and snapshot build need --country (IN, US or AE; no default, so the country
+	is always a deliberate choice); --pack is optional (the country's default pack).
+	India: INR prices, customers and suppliers with GSTINs, GST through india_compliance
+	(which must be installed); --no-gst --force for a business not registered for GST.
+	US: a Texas business selling in Texas, USD, sales and use tax.
+	AE: a VAT-registered Dubai business, AED, 5% VAT (ERPNext's UAE VAT 201 report).
+	--use-wizard-company needs the default company in that country and currency.
 	"""
 
 
 @demo_data.command("list-packs")
 def list_packs():
+	from demo_data.locales import get_locale
+	from demo_data.packs import default_packs
 	from demo_data.packs import list_packs as _list
 
+	by_name = {}
 	for p in _list():
-		click.echo(f"{p['id']:<24} v{p['pack_version']}  {p['title']}")
+		by_name.setdefault(p["pack"], []).append(p)
+	click.echo(f"{'Pack':<24} {'Countries':<10} {'Sizes':<22} Title")
+	for name in sorted(by_name):
+		versions = by_name[name]
+		countries = ", ".join(sorted({v["country"] for v in versions}))
+		sizes = ", ".join(s for s in SIZES if any(s in v["sizes"] for v in versions))
+		titles = "; ".join(sorted({f"{v['title']}" for v in versions}))
+		click.echo(f"{name:<24} {countries:<10} {sizes:<22} {titles}")
+	defaults = default_packs()
+	click.echo(
+		"Default pack per country: "
+		+ ", ".join(f"{code} ({get_locale(code).country}) {defaults[code]}" for code in sorted(defaults))
+	)
 
 
 @demo_data.command("install")
-@click.option("--pack", required=True, help="Pack id (see list-packs)")
+@click.option("--country", required=True, help=COUNTRY_HELP)
+@click.option("--pack", help=PACK_HELP)
 @click.option(
 	"--size",
 	default="small",
@@ -76,7 +97,7 @@ def list_packs():
 )
 @click.option("--seed", default=1, show_default=True, type=int, help="Same seed, same data")
 @click.option("--end-date", help="Last day of generated data (default: today)")
-@click.option("--home-state", help="State of the demo company: name, code (TN, KA) or GST state code (33); US packs: TX only. Default: the pack's")
+@click.option("--home-state", help="State of the demo company: India: name, code (TN, KA) or GST state code (33); US: TX only; UAE: emirate (DU, AZ, SH...). Default: the pack's")
 @click.option(
 	"--demo-company-name", help="Name for the new demo company (default: generated from the seed)"
 )
@@ -105,6 +126,7 @@ def list_packs():
 @pass_context
 def install(
 	context,
+	country,
 	pack,
 	size,
 	seed,
@@ -133,6 +155,7 @@ def install(
 			log=_log,
 			no_gst=no_gst,
 			fictitious_gstin=fictitious_gstin,
+			country=country,
 		)
 		_log(f"{run.name} completed: {_documents(run.totals())} in {run.doc.company}{_took(run)}")
 		if verbose:
@@ -200,11 +223,18 @@ def history(context, run_name, limit):
 def _details(r) -> str:
 	"""What the run generates. The data period ends on end_date; it is not an event time."""
 	months = f"{r.months} months of data" if r.get("months") else "data"
-	return f"{r.pack}/{r.size} seed {r.seed}, {months} up to {r.end_date}, company {r.company or '-'}"
+	return f"{_pack(r)}/{r.size} seed {r.seed}, {months} up to {r.end_date}, company {r.company or '-'}"
+
+
+def _pack(r) -> str:
+	"""The run's pack with its country, e.g. "furniture_store (US)"."""
+	from demo_data.packs import describe
+
+	return describe(r.pack)
 
 
 def _describe(r) -> str:
-	return f"{r.pack}/{r.size} seed {r.seed}, data up to {r.end_date}, company {r.company or '-'}"
+	return f"{_pack(r)}/{r.size} seed {r.seed}, data up to {r.end_date}, company {r.company or '-'}"
 
 
 def _when(value) -> str:
@@ -375,19 +405,26 @@ def _snapshot_run(fn):
 
 
 @snapshot.command("build")
-@click.option("--pack", required=True, help="Pack id (see list-packs)")
+@click.option("--country", required=True, help=COUNTRY_HELP)
+@click.option("--pack", help=PACK_HELP)
 @click.option("--size", default="small", show_default=True, type=click.Choice(SIZES))
 @click.option("--seed", default=1, show_default=True, type=int)
 @click.option("--end-date", help="Last day of generated data (default: today)")
 @click.option("--out", "out_dir", help="Folder for the snapshot (default: <bench>/demo-snapshots)")
 @ROOT_PASSWORD
 @HOST_SCOPE
-def snapshot_build(pack, size, seed, end_date, out_dir, db_root_password, host_scope):
+def snapshot_build(country, pack, size, seed, end_date, out_dir, db_root_password, host_scope):
 	"""Build a snapshot on a throwaway site: wizard, install, verify, back up, drop."""
 	from demo_data import snapshot as snap
+	from demo_data.packs import PackNotFound, find_pack
+
+	try:
+		pack_id = find_pack(country, pack)
+	except PackNotFound as e:
+		raise click.ClickException(str(e)) from e
 
 	def go():
-		path = snap.build(pack, size, seed, end_date, db_root_password, host_scope, out_dir, log=_log)
+		path = snap.build(pack_id, size, seed, end_date, db_root_password, host_scope, out_dir, log=_log)
 		_log(f"Snapshot ready: {path} (and its .json manifest)")
 
 	_snapshot_run(go)

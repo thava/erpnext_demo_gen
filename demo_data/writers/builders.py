@@ -318,7 +318,7 @@ def purchase_invoice_from_order(p, w, pd):
 	_dated(doc, pd)
 	doc.due_date = frappe.utils.add_days(pd.posting_date, 30)
 	doc.payment_schedule = []
-	return _save(doc, pd)
+	return _submit_purchase_invoice(doc, w, pd)
 
 
 def purchase_order(p, w, pd):
@@ -360,7 +360,16 @@ def purchase_invoice(p, w, pd):
 	_dated(doc, pd)
 	doc.due_date = frappe.utils.add_days(pd.posting_date, 30)
 	doc.payment_schedule = []
-	return _save(doc, pd)
+	return _submit_purchase_invoice(doc, w, pd)
+
+
+def _submit_purchase_invoice(doc, w, pd):
+	"""Save, let the locale complete it (UAE: recoverable VAT), then submit."""
+	_save(doc, pd, submit=False)
+	if w.locale.finish_purchase_invoice(doc, w):
+		doc.save(ignore_permissions=True)
+	doc.submit()
+	return doc
 
 
 def pay_supplier(p, w, pd):

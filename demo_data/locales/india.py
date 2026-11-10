@@ -40,6 +40,7 @@ def indian_states() -> frozenset[str]:
 class IndiaLocale(Locale):
 	code = "IN"
 	country = "India"
+	aliases = ("Bharat",)
 
 	# ---------------------------------------------------------- planning (pure)
 	season_start_month = 4  # seasonality index 0 = April, the fiscal year start
@@ -352,3 +353,59 @@ class IndiaLocale(Locale):
 				"GSTIN, or pass --fictitious-gstin to have the demo add an address with a made-up GSTIN "
 				"(removed on uninstall), or pass --no-gst --force to generate the demo without GST."
 			)
+
+	# ---------------------------------------------------------- verify
+	def tax_checks(self, ctx) -> list:
+		return [self._gst_rows(ctx)]
+
+	def _gst_rows(self, ctx):
+		"""GST rows match the company's registration.
+
+		Registered (F-16): every submitted sale and every purchase from a GST-registered
+		supplier carries GST rows, except zero-rated SEZ and export supplies made without
+		GST (under a bond). Unregistered (--no-gst): sales carry none, and those
+		purchases carry GST as part of cost ("Valuation and Total"), since no credit can
+		be claimed.
+		"""
+		import frappe
+
+		from demo_data.verify import Check
+
+		registered = ctx.run.params.get("gst", "registered") == "registered"
+		wrong = []
+		sales_rows = "exists" if registered else "not exists"
+		# SEZ and export supplies are zero-rated: without "export with GST" (supply under a
+		# bond, LUT) they rightly carry no GST rows, so the registered check skips them
+		zero_rated = (
+			"and not (d.gst_category in ('SEZ', 'Overseas') and ifnull(d.is_export_with_gst, 0) = 0)" if registered else ""
+		)
+		for doctype in ("Quotation", "Sales Order", "Sales Invoice"):
+			wrong += frappe.db.sql_list(
+				f"""select d.name from `tab{doctype}` d where d.company=%s and d.docstatus=1 {zero_rated}
+				and not {sales_rows} (select 1 from `tabSales Taxes and Charges` t where t.parent=d.name)""",
+				(ctx.company,),
+			)
+		cost_only = "" if registered else "and t.category = 'Valuation and Total'"
+		for doctype in ("Purchase Order", "Purchase Invoice"):
+			wrong += frappe.db.sql_list(
+				f"""select d.name from `tab{doctype}` d join tabSupplier s on s.name=d.supplier
+				where d.company=%s and d.docstatus=1 and s.gst_category != 'Unregistered'
+				and not exists (select 1 from `tabPurchase Taxes and Charges` t
+					where t.parent=d.name {cost_only})""",
+				(ctx.company,),
+			)
+		if wrong and ctx.run.params.get("use_wizard_company"):
+			# the wizard company also holds the user's own documents; judge only the run's
+			ours = set(
+				frappe.get_all(
+					"Demo Data Record", filters={"run": ctx.run.name, "ref_name": ["in", wrong]}, pluck="ref_name"
+				)
+			)
+			wrong = [name for name in wrong if name in ours]
+		if registered:
+			return Check("taxable documents have GST rows", not wrong, ", ".join(wrong[:5]) or "all present")
+		return Check(
+			"no GST on sales, purchase GST in cost (unregistered)",
+			not wrong,
+			", ".join(wrong[:5]) or "all as expected",
+		)

@@ -126,6 +126,7 @@ def routing_number(rng: random.Random, prefix: str) -> str:
 class USLocale(Locale):
 	code = "US"
 	country = "United States"
+	aliases = ("USA", "United States of America", "America")
 
 	# ---------------------------------------------------------- planning (pure)
 	season_start_month = 1  # seasonality index 0 = January, the fiscal year start
@@ -513,6 +514,57 @@ class USLocale(Locale):
 		for role in ("main", "collection"):
 			prefix = str((banking.get(role) or {}).get("routing_prefix") or "")
 			check(len(prefix) == 4 and prefix.isdigit(), f"banking.{role}.routing_prefix", "must be 4 digits")
+
+	# ---------------------------------------------------------- verify
+	def tax_checks(self, ctx) -> list:
+		"""Texas (design 5.14): regular customers pay the sales tax, resellers with a
+		certificate on file pay none, deliveries ship to Texas, stock for resale is bought
+		tax-free."""
+		import frappe
+		from frappe.utils import flt
+
+		from demo_data.locales.us import TAX_CATEGORY_RESELLER
+		from demo_data.verify import Check
+
+		sales = frappe.db.sql(
+			"""select d.name, d.customer, ifnull(c.tax_category, '') category, ifnull(c.customer_details, '') details,
+				d.total_taxes_and_charges tax
+			from `tabSales Invoice` d join `tabCustomer` c on c.name = d.customer
+			where d.company = %s and d.docstatus = 1 and d.is_return = 0""",
+			ctx.company,
+			as_dict=True,
+		)
+		untaxed = [s.name for s in sales if s.category != TAX_CATEGORY_RESELLER and flt(s.tax) <= 0]
+		taxed_resale = [s.name for s in sales if s.category == TAX_CATEGORY_RESELLER and flt(s.tax) != 0]
+		no_certificate = sorted({s.customer for s in sales if flt(s.tax) == 0 and "resale certificate" not in s.details})
+		resellers = sum(s.category == TAX_CATEGORY_RESELLER for s in sales)
+		sales_check = Check(
+			"sales tax: regular customers taxed, resellers exempt with a certificate",
+			not (untaxed or taxed_resale or no_certificate),
+			f"{len(sales) - resellers} taxed, {resellers} to resellers"
+			+ (f"; untaxed: {untaxed[:5]}" if untaxed else "")
+			+ (f"; taxed resale: {taxed_resale[:5]}" if taxed_resale else "")
+			+ (f"; no certificate: {no_certificate[:5]}" if no_certificate else ""),
+		)
+		outside = frappe.db.sql_list(
+			"""select dn.name from `tabDelivery Note` dn left join `tabAddress` a on a.name = dn.shipping_address_name
+			where dn.company = %s and dn.docstatus = 1 and ifnull(a.state, '') != 'Texas'""",
+			ctx.company,
+		)
+		shipping = Check("deliveries ship to Texas addresses", not outside, f"outside Texas: {outside[:5]}" if outside else "")
+		resale_taxed = frappe.db.sql_list(
+			"""select pi.name from `tabPurchase Invoice` pi
+			where pi.company = %s and pi.docstatus = 1 and pi.total_taxes_and_charges != 0
+			and not exists (select 1 from `tabPurchase Invoice Item` i join `tabItem` it on it.name = i.item_code
+				where i.parent = pi.name and it.is_sales_item = 0)""",
+			ctx.company,
+		)
+		purchases = Check(
+			"stock for resale bought tax-free (resale certificate)",
+			not resale_taxed,
+			f"resale bills with tax: {resale_taxed[:5]}" if resale_taxed else "",
+		)
+		return [sales_check, shipping, purchases]
 
 
 def _parent_account(company: str, root_type: str) -> str:

@@ -2,6 +2,7 @@
 # bought for resale (no purchase tax, resale certificate) and sold at the Texas rate.
 schema_version: 1
 id: furniture_store_us
+pack: furniture_store               # the US version of furniture_store (file ids are internal)
 extends: us_trading
 pack_version: 1
 title: Furniture Store (Texas)

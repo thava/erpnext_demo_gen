@@ -8,7 +8,7 @@ import frappe
 from frappe.utils import getdate, nowdate
 
 from demo_data.jobs import INLINE_JOBS, inline_jobs
-from demo_data.packs import load_pack
+from demo_data.packs import describe, load_pack
 from demo_data.registry import RESUMABLE_STATUSES, Run, active_runs
 
 # Transactions in the user's own company are removed by tier A (registry-based) uninstall.
@@ -116,6 +116,8 @@ def resolve_params(
 		raise DemoDataError(f"Unknown size {size!r}; choose one of {', '.join(pack['sizes'])}")
 	params = {
 		"pack": pack_id,
+		"pack_name": pack.get("pack") or pack_id,
+		"country": locale.code,
 		"pack_version": pack["pack_version"],
 		"size": size,
 		"seed": int(seed),
@@ -178,13 +180,13 @@ def find_resumable(params: dict) -> Run | None:
 				return run  # completed with failures: re-running retries them
 			raise DemoDataError(f"{row.name} with these inputs is already installed ({row.company})")
 		raise DemoDataError(
-			f"{row.name} ({row.pack}/{row.size}, {row.company}) is {row.status}; uninstall it first"
+			f"{row.name} ({describe(row.pack)}/{row.size}, {row.company}) is {row.status}; uninstall it first"
 		)
 	return None
 
 
 def install(
-	pack,
+	pack=None,
 	size="small",
 	seed=1,
 	end_date=None,
@@ -195,10 +197,31 @@ def install(
 	log=print,
 	no_gst=False,
 	fictitious_gstin=False,
+	country=None,
 ):
+	"""Install a pack for a country. The country is required and explicit; the pack is
+	optional (the country's default pack)."""
 	from demo_data.locales import get_locale
+	from demo_data.packs import PackNotFound, default_packs, find_pack, list_packs
 
-	locale = get_locale(load_pack(pack))
+	if not country:
+		raise DemoDataError("Choose the country explicitly: --country IN (India) or --country US (United States)")
+	try:
+		pack_id = find_pack(country, pack)
+	except PackNotFound as e:
+		raise DemoDataError(str(e)) from e
+	info = next(p for p in list_packs() if p["id"] == pack_id)
+	locale = get_locale(load_pack(pack_id))
+	default = " (its default pack)" if not pack and default_packs().get(info["country"]) == info["pack"] else ""
+	log(f"Pack: {info['pack']}{default}, country: {locale.country} ({locale.code}), currency {locale.currency}")
+	site_company = frappe.db.get_single_value("Global Defaults", "default_company")
+	site_currency = site_company and frappe.get_cached_value("Company", site_company, "default_currency")
+	if site_currency and site_currency != locale.currency and not use_wizard_company:
+		log(
+			f"Note: this site's default company {site_company!r} uses {site_currency}; the demo creates its own "
+			f"{locale.country} company in {locale.currency} next to it"
+		)
+	pack = pack_id
 	warnings = preflight(force, locale)
 	pack_data, params = resolve_params(
 		pack, size, seed, end_date, home_state, company, use_wizard_company, no_gst, fictitious_gstin

@@ -18,6 +18,7 @@ class Locale:
 
 	code = ""  # ISO 3166-1 alpha-2
 	country = ""  # ERPNext Country name
+	aliases: tuple[str, ...] = ()  # other names accepted by --country (compared squashed)
 
 	# ---------------------------------------------------------- planning (pure)
 	season_start_month = 1  # month of the pack's seasonality index 0 (the fiscal year start)
@@ -145,6 +146,10 @@ class Locale:
 	def sales_taxes(self, doc, w):
 		"""Choose the tax template of a quotation, sales order or counter sale when needed."""
 
+	def finish_purchase_invoice(self, doc, w) -> bool:
+		"""Adjust a saved purchase invoice before submit (e.g. UAE recoverable VAT); True to save again."""
+		return False
+
 	# ---------------------------------------------------------- install parameters
 	required_apps: tuple[str, ...] = ("erpnext",)
 	snapshot_install_args: tuple[str, ...] = ()  # extra `install` options for a snapshot's wizard company
@@ -172,6 +177,10 @@ class Locale:
 	def validate_pack(self, pack: dict, check):
 		"""Country-specific pack checks; check(ok, path, message) records an error."""
 
+	def tax_checks(self, ctx) -> list:
+		"""verify's tax checks for a run in this country (a list of verify.Check)."""
+		return []
+
 	def check_wizard_company(self, company: str, params: dict, home_region: str | None, unregistered: bool, fictitious_id: bool):
 		"""Validate installing into the user's own company and settle params (home
 		region, fictitious tax ID); raise DemoDataError when it cannot work."""
@@ -194,10 +203,37 @@ def get_locale(code_or_pack: str | dict | None = None) -> Locale:
 			from demo_data.locales.us import USLocale
 
 			_LOCALES[code] = USLocale()
+		elif code == "AE":
+			from demo_data.locales.ae import AELocale
+
+			_LOCALES[code] = AELocale()
 		else:
 			raise KeyError(f"unknown locale {code!r}; known: {', '.join(known_locales())}")
 	return _LOCALES[code]
 
 
 def known_locales() -> tuple[str, ...]:
-	return ("IN", "US")
+	return ("IN", "US", "AE")
+
+
+def squash(text: str) -> str:
+	"""Lower case, letters and digits only: "United States", "united-states" and
+	"UnitedStates" all become "unitedstates"."""
+	return "".join(ch for ch in text.lower() if ch.isalnum())
+
+
+def country_choices() -> str:
+	return ", ".join(f"{code} ({get_locale(code).country})" for code in known_locales())
+
+
+def resolve_country(text: str | None) -> str | None:
+	"""The locale code for a country code or name, ignoring case, spaces and punctuation
+	(IN, india, US, usa, "United States", united-states); None when unknown."""
+	if not text:
+		return None
+	wanted = squash(text)
+	for code in known_locales():
+		locale = get_locale(code)
+		if wanted in {squash(code), squash(locale.country), *(squash(a) for a in locale.aliases)}:
+			return code
+	return None

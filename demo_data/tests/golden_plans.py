@@ -29,6 +29,8 @@ CASES = {
 	"electrical_distributor-medium-s6": ("electrical_distributor", "medium", 6, "Tamil Nadu", True),
 	"furniture_store_us-micro-s7": ("furniture_store_us", "micro", 7, "Texas", True),
 	"furniture_store_us-small-s8": ("furniture_store_us", "small", 8, "Texas", True),
+	"furniture_store_ae-micro-s9": ("furniture_store_ae", "micro", 9, "Dubai", True),
+	"furniture_store_ae-small-s10": ("furniture_store_ae", "small", 10, "Dubai", True),
 }
 
 

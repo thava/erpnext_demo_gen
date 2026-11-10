@@ -30,15 +30,70 @@ class PackError(Exception):
 
 # ---------------------------------------------------------------- loading
 def list_packs(include_abstract: bool = False) -> list[dict]:
+	"""Every pack file: id (the file), pack (its name, shared by its country versions),
+	country (its locale code), title, version, sizes; and default_pack for country bases."""
 	packs = []
 	for filename in sorted(os.listdir(PACK_DIR)):
 		if filename.endswith(".yaml"):
-			raw = _read(filename[:-5])
-			if include_abstract or not raw.get("abstract"):
-				packs.append(
-					{"id": raw["id"], "title": raw.get("title"), "pack_version": raw.get("pack_version")}
-				)
+			pack_id = filename[:-5]
+			raw = _read(pack_id)
+			if raw.get("abstract") and not include_abstract:
+				continue
+			merged = _resolve(pack_id, seen=())
+			packs.append(
+				{
+					"id": raw["id"],
+					"pack": merged.get("pack") or raw["id"],
+					"country": (merged.get("locale") or "IN").upper(),
+					"title": raw.get("title"),
+					"pack_version": raw.get("pack_version"),
+					"sizes": list(merged.get("sizes") or {}),
+					"abstract": bool(raw.get("abstract")),
+					"default_pack": raw.get("default_pack"),
+				}
+			)
 	return packs
+
+
+class PackNotFound(Exception):
+	"""No pack for that country and name; the message says what exists."""
+
+
+def default_packs() -> dict[str, str]:
+	"""Country code -> its default pack name (declared in the country's base pack)."""
+	return {p["country"]: p["default_pack"] for p in list_packs(include_abstract=True) if p["abstract"] and p["default_pack"]}
+
+
+def find_pack(country: str, pack: str | None = None) -> str:
+	"""The pack file for a pack name (or the country's default) in a country.
+
+	The country is a separate, explicit choice (--country), never part of the pack name."""
+	from demo_data.locales import country_choices, get_locale, resolve_country
+
+	code = resolve_country(country)
+	if not code:
+		raise PackNotFound(f"Unknown country {country!r}; use one of: {country_choices()}")
+	versions = [p for p in list_packs() if p["country"] == code]
+	if not pack:
+		pack = default_packs().get(code)
+		if not pack:
+			raise PackNotFound(f"No default pack for {get_locale(code).country}; pass --pack")
+	for p in versions:
+		if p["pack"] == pack:
+			return p["id"]
+	available = ", ".join(sorted({p["pack"] for p in versions})) or "none"
+	others = sorted({p["country"] for p in list_packs() if p["pack"] == pack})
+	hint = f" ({pack} exists for {', '.join(others)})" if others else ""
+	raise PackNotFound(f"No {get_locale(code).country} ({code}) version of {pack!r}{hint}. {code} packs: {available}")
+
+
+def describe(pack_id: str) -> str:
+	"""How a run's pack is shown: its name and country, e.g. "furniture_store (US)"."""
+	try:
+		p = next(p for p in list_packs() if p["id"] == pack_id)
+	except StopIteration:
+		return pack_id
+	return f"{p['pack']} ({p['country']})"
 
 
 def load_pack(pack_id: str) -> dict:

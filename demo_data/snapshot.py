@@ -142,7 +142,11 @@ def build(
 	from demo_data.packs import load_pack
 
 	load_pack(pack)  # fails early on an unknown pack
-	site = f"demo-snapshot-{pack}-{size}.localhost".replace("_", "-")
+	from demo_data.packs import list_packs
+
+	info = next(p for p in list_packs() if p["id"] == pack)
+	label = f"{info['pack']}-{info['country']}"  # e.g. furniture_store-US
+	site = f"demo-snapshot-{label}-{size}.localhost".replace("_", "-").lower()
 	if os.path.exists(os.path.join(bench_path(), "sites", site)):
 		raise SnapshotError(
 			f"Build site {site} exists, probably from a failed build. Drop it first: "
@@ -159,7 +163,8 @@ def build(
 	bench(new_site, log, secret=db_root_password)
 	try:
 		bench(["--site", site, "execute", "demo_data.snapshot.complete_setup", "--kwargs", json.dumps({"pack": pack, "seed": seed})], log)
-		install = ["--site", site, "demo-data", "install", "--pack", pack, "--size", size, "--seed", str(seed)]
+		install = ["--site", site, "demo-data", "install", "--country", info["country"], "--pack", info["pack"]]
+		install += ["--size", size, "--seed", str(seed)]
 		from demo_data.locales import get_locale
 
 		install += ["--use-wizard-company", *get_locale(load_pack(pack)).snapshot_install_args]
@@ -169,7 +174,7 @@ def build(
 		bench(["--site", site, "execute", "demo_data.snapshot.dump", "--kwargs", json.dumps({"out_dir": out_dir})], log)
 	except SnapshotError as e:
 		raise SnapshotError(f"{e}. The build site {site} is kept for inspection; drop it with: bench drop-site {site} --no-backup") from e
-	dump = latest_dump(out_dir, pack, size)
+	dump = latest_dump(out_dir, label, size)
 	# The build queued background jobs (site setup, install); without workers they pile
 	# up until the queue refuses new ones (F-30), and with workers they would run against
 	# a dropped site. They belong to this throwaway site, so remove them with it.
@@ -178,9 +183,9 @@ def build(
 	return dump
 
 
-def latest_dump(out_dir: str, pack: str, size: str) -> str:
+def latest_dump(out_dir: str, label: str, size: str) -> str:
 	dumps = sorted(
-		(f for f in os.listdir(out_dir) if f.startswith(f"demo-{pack}-{size}-") and f.endswith(".sql.gz")),
+		(f for f in os.listdir(out_dir) if f.startswith(f"demo-{label}-{size}-") and f.endswith(".sql.gz")),
 		key=lambda f: os.path.getmtime(os.path.join(out_dir, f)),
 	)
 	if not dumps:
@@ -263,7 +268,11 @@ def dump(out_dir: str):
 	versions = {app: str(frappe.get_attr(f"{app}.__version__")) for app in frappe.get_installed_apps()}
 	short = {"frappe": "f", "erpnext": "e", "india_compliance": "ic", "demo_data": "dd"}
 	tag = "-".join(f"{short.get(a, a)}{versions[a]}" for a in apps_for(params.pack))
-	base = os.path.join(out_dir, f"demo-{params.pack}-{params.size}-s{params.seed}-{tag}-{dt.date.today():%Y%m%d}")
+	from demo_data.packs import list_packs
+
+	info = next(p for p in list_packs() if p["id"] == params.pack)
+	label = f"{info['pack']}-{info['country']}"
+	base = os.path.join(out_dir, f"demo-{label}-{params.size}-s{params.seed}-{tag}-{dt.date.today():%Y%m%d}")
 
 	odb = new_backup(ignore_files=True, ignore_conf=True, compress=True, force=True, backup_path_db=f"{base}.sql.gz")
 	path = odb.backup_path_db
@@ -273,6 +282,8 @@ def dump(out_dir: str):
 	manifest = {
 		"format": 1,
 		"pack": params.pack,
+		"pack_name": info["pack"],
+		"country": info["country"],
 		"pack_version": params.pack_version,
 		"size": params.size,
 		"seed": params.seed,

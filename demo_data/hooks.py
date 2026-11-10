@@ -1,7 +1,7 @@
 app_name = "demo_data"
 app_title = "Demo Data"
 app_publisher = "Thava Alagu"
-app_description = "Realistic, removable demo data for ERPNext v16+ (India; United States in progress)"
+app_description = "Realistic, removable demo data for ERPNext v16+ (India, United States, United Arab Emirates)"
 app_email = "thavamuni@gmail.com"
 app_license = "gpl-3.0"
 
