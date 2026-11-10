@@ -34,43 +34,43 @@ done_step
 step "get apps"
 bench get-app erpnext --branch "$BRANCH" --skip-assets
 bench get-app india_compliance https://github.com/resilient-tech/india-compliance --branch "$BRANCH" --skip-assets
-bench get-app demo_data "$GITHUB_WORKSPACE" --skip-assets
+bench get-app erpnext_demo_gen "$GITHUB_WORKSPACE" --skip-assets
 done_step
 
 step "new site $SITE"
 bench new-site "$SITE" --db-root-password "$DB_ROOT_PASSWORD" --admin-password admin \
 	--mariadb-user-host-login-scope='%' \
-	--install-app erpnext --install-app india_compliance --install-app demo_data
+	--install-app erpnext --install-app india_compliance --install-app erpnext_demo_gen
 bench --site "$SITE" set-config allow_tests true  # bench run-tests requires it
 # a neutral wizard company; the demo installs its own company next to it, as on a real site
-bench --site "$SITE" execute demo_data.snapshot.complete_setup \
+bench --site "$SITE" execute erpnext_demo_gen.snapshot.complete_setup \
 	--kwargs '{"pack": "furniture_store", "company": "CI Base Company Pvt Ltd"}'
 done_step
 
 step "new site $US_SITE"
 bench new-site "$US_SITE" --db-root-password "$DB_ROOT_PASSWORD" --admin-password admin \
 	--mariadb-user-host-login-scope='%' \
-	--install-app erpnext --install-app demo_data
+	--install-app erpnext --install-app erpnext_demo_gen
 bench --site "$US_SITE" set-config allow_tests true
-bench --site "$US_SITE" execute demo_data.snapshot.complete_setup \
+bench --site "$US_SITE" execute erpnext_demo_gen.snapshot.complete_setup \
 	--kwargs '{"pack": "furniture_store_us", "company": "CI Base Company LLC"}'
 done_step
 
 step "new site $AE_SITE"
 bench new-site "$AE_SITE" --db-root-password "$DB_ROOT_PASSWORD" --admin-password admin \
 	--mariadb-user-host-login-scope='%' \
-	--install-app erpnext --install-app demo_data
+	--install-app erpnext --install-app erpnext_demo_gen
 bench --site "$AE_SITE" set-config allow_tests true
-bench --site "$AE_SITE" execute demo_data.snapshot.complete_setup \
+bench --site "$AE_SITE" execute erpnext_demo_gen.snapshot.complete_setup \
 	--kwargs '{"pack": "furniture_store_ae", "company": "CI Base Company LLC"}'
 done_step
 
 step "new site $DE_SITE"
 bench new-site "$DE_SITE" --db-root-password "$DB_ROOT_PASSWORD" --admin-password admin \
 	--mariadb-user-host-login-scope='%' \
-	--install-app erpnext --install-app demo_data
+	--install-app erpnext --install-app erpnext_demo_gen
 bench --site "$DE_SITE" set-config allow_tests true
-bench --site "$DE_SITE" execute demo_data.snapshot.complete_setup \
+bench --site "$DE_SITE" execute erpnext_demo_gen.snapshot.complete_setup \
 	--kwargs '{"pack": "furniture_store_de", "company": "CI Base Company GmbH"}'
 done_step
 

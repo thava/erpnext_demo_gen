@@ -1,0 +1,967 @@
+"""Transaction plan: funding, purchases and sales in date order (design 5.5, M-7).
+
+Approach:
+1. Spread sales over the range by the pack's seasonality: showroom invoices
+   (b2c, stock leaves with the invoice) and dealer orders (b2b: quotation, sales
+   order, delivery note, invoice), plus lost quotations.
+2. Mark state coverage: drafts near the end, cancellations, returns, partial
+   deliveries, and payment outcomes (on time, late, partly paid, open/overdue).
+3. Walk the calendar with a stock ledger: receipts land before same-day sales,
+   a shortfall triggers an emergency purchase dated before the sale, and items
+   below their reorder level get a material request and purchase order. Stock
+   therefore never goes negative and nothing is back-dated (A-9).
+4. Simulate the bank balance and raise the opening term loan if needed, so the
+   bank never goes negative.
+5. Sort everything by (date, stage, creation order) and give each document a
+   strictly increasing posting time within its day.
+"""
+
+import math
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+
+from erpnext_demo_gen.planner import Plan, ref, weighted
+from erpnext_demo_gen.planner.masters import TERM_DAYS
+
+# order of stages within one day
+STAGE = {
+	"funding": 0,
+	"bank_transfer": 5,  # before the day's other entries, so it moves the balance up to the day before
+	"material_request": 10,
+	"purchase_order": 20,
+	"purchase_receipt": 30,
+	"stock_issue": 35,  # own-use supplies issued from their store (planner/supplies.py)
+	"purchase_invoice": 40,
+	"supplier_payment": 50,
+	"quotation": 60,
+	"sales_order": 70,
+	"delivery_note": 80,
+	"sales_invoice": 90,
+	"customer_payment": 100,
+	"sales_return": 110,
+	"refund": 120,
+}
+BANK_FLOOR = 100_000  # default lowest planned bank balance, and the loan step (pack: banking.cash_floor)
+LOST_QUOTATION_SHARE = 0.25
+PARTIAL_DELIVERY_SHARE = 0.12
+SPLIT_LATE_PAYMENT_SHARE = 0.4
+SUPPLIER_TERMS_DAYS = 30
+SUPPLIER_ON_TIME_SHARE = 0.85
+REORDER_WEEKDAY = 0  # Monday
+
+
+@dataclass
+class Event:
+	date: date
+	stage: str
+	key: str
+	doctype: str
+	builder: str
+	params: dict
+	order: int | None = None  # creation order; set by Timeline.add
+	after: int = 0  # 1 = immediately after the event with the same (date, stage, order), e.g. a cancel
+	bank: float = 0.0  # effect on the bank balance, for the cash simulation
+	amount: float = 0.0  # payments: the amount, for choosing a payment method
+	consumes: list = field(default_factory=list)  # [(item_key, qty)] leaving stock on this date
+
+	def sort_key(self):
+		return (self.date, STAGE[self.stage], self.order, self.after)
+
+
+@dataclass
+class ItemInfo:
+	key: str
+	sell: float
+	buy: float
+	tax_rate: float  # percent charged on sales, from the locale
+	purchase_tax_rate: float  # percent the supplier charges on stock bought for resale
+	reorder_min: int
+	reorder_max: int
+	supplier: str | None
+
+
+class Timeline:
+	def __init__(self):
+		self.events: list[Event] = []
+		self.counters: dict[str, int] = defaultdict(int)
+
+	def next_key(self, prefix: str) -> str:
+		self.counters[prefix] += 1
+		return f"T:{prefix}:{self.counters[prefix]:06d}"
+
+	def add(self, event: Event) -> Event:
+		if event.order is None:
+			event.order = len(self.events) + 1
+		self.events.append(event)
+		return event
+
+
+# ---------------------------------------------------------------- helpers
+def days_between(a: date, b: date) -> int:
+	return (b - a).days
+
+
+def clamp(d: date, low: date, high: date) -> date:
+	return max(low, min(d, high))
+
+
+def pareto_weights(rng, n: int, alpha: float) -> list[float]:
+	"""A few heavy hitters and a long tail, in random order."""
+	ranks = list(range(1, n + 1))
+	rng.shuffle(ranks)
+	return [1 / (r**alpha) for r in ranks]
+
+
+def month_starts(start: date, end: date) -> list[date]:
+	months, d = [], date(start.year, start.month, 1)
+	while d <= end:
+		months.append(d)
+		d = date(d.year + (d.month == 12), d.month % 12 + 1, 1)
+	return months
+
+
+def spread_over_months(
+	total: int, start: date, end: date, seasonality: list[float], first_month: int = 4
+) -> list[tuple[date, date, int]]:
+	"""[(first_day, last_day, count)] per month in range, weighted by seasonality
+	(index 0 = first_month: the locale's fiscal year start; India: April)."""
+	spans = []
+	for m in month_starts(start, end):
+		next_m = date(m.year + (m.month == 12), m.month % 12 + 1, 1)
+		first, last = max(m, start), min(next_m - timedelta(days=1), end)
+		share = (days_between(first, last) + 1) / (days_between(m, next_m))
+		spans.append((first, last, seasonality[(m.month - first_month) % 12] * share))
+	weight_total = sum(w for _, _, w in spans) or 1
+	exact = [total * w / weight_total for _, _, w in spans]
+	counts = [int(x) for x in exact]
+	for i in sorted(range(len(spans)), key=lambda i: exact[i] - counts[i], reverse=True)[
+		: total - sum(counts)
+	]:
+		counts[i] += 1
+	return [(f, last, c) for (f, last, _), c in zip(spans, counts, strict=True)]
+
+
+def random_dates(rng, total, start, end, seasonality, first_month: int = 4) -> list[date]:
+	out = []
+	for first, last, count in spread_over_months(total, start, end, seasonality, first_month):
+		out += [first + timedelta(days=rng.randint(0, days_between(first, last))) for _ in range(count)]
+	return sorted(out)
+
+
+def with_tax(amount: float, rate: float) -> float:
+	return amount * (1 + rate / 100)
+
+
+# ---------------------------------------------------------------- entry point
+def plan_transactions(plan: Plan):
+	ctx = plan.ctx
+	items = read_items(plan)
+	customers = [d for d in plan.docs if d.doctype == "Customer"]
+	terms_days = {d.key: d.params["days"] for d in plan.docs if d.doctype == "Payment Terms Template"}
+	tl = Timeline()
+
+	plan_sales(ctx, tl, items, customers, terms_days)
+	ensure_open_order(ctx, tl)
+	ensure_overdue(ctx, tl)
+	fit_reorder_levels(plan, tl, items)
+	plan_stock_and_purchases(ctx, tl, items)
+	from erpnext_demo_gen.planner.supplies import plan_supplies
+
+	plan_supplies(ctx, tl)
+	ensure_payment_modes(ctx, tl)
+	plan_bank_transfers(ctx, tl)
+	plan_funding(ctx, tl)
+	emit(plan, tl)
+
+
+def read_items(plan: Plan) -> dict[str, ItemInfo]:
+	prices = {
+		(d.params["list"], d.params["item"]["$ref"]): d.params["rate"]
+		for d in plan.docs
+		if d.doctype == "Item Price"
+	}
+	items = {}
+	for d in plan.docs:
+		if d.doctype == "Item" and d.params.get("family") != "supplies":  # supplies are not for sale
+			p = d.params
+			items[d.key] = ItemInfo(
+				key=d.key,
+				sell=prices[("selling", d.key)],
+				buy=prices[("buying", d.key)],
+				tax_rate=plan.ctx.locale.item_tax_rate(p),
+				purchase_tax_rate=plan.ctx.locale.purchase_tax_rate(p),
+				reorder_min=p["reorder"]["min"],
+				reorder_max=p["reorder"]["max"],
+				supplier=p["suppliers"][0]["$ref"] if p["suppliers"] else None,
+			)
+	return items
+
+
+# ---------------------------------------------------------------- sales
+def plan_sales(ctx, tl: Timeline, items: dict[str, ItemInfo], customers, terms_days):
+	pack = ctx.pack
+	behavior = pack["behavior"]
+	seasonality = behavior["seasonality"]["monthly_index"]
+	alpha = behavior["customer_skew"].get("alpha", 1.2)
+	rng = ctx.rng("sales")
+	item_keys = sorted(items)
+	item_weights = pareto_weights(ctx.rng("item-popularity"), len(item_keys), 1.0)
+
+	total = ctx.size["sales_invoices"]
+	channels = pack["channels"]
+	for channel in channels:
+		count = round(total * channel["share"])
+		members = [c for c in customers if c.params.get("channel") == channel["id"]]
+		if not members:
+			continue
+		weights = pareto_weights(ctx.rng(f"customer-skew:{channel['id']}"), len(members), alpha)
+		walk_in = next((c for c in members if c.key == "M:customer:walk-in"), None)
+		named = [c for c in members if c is not walk_in]
+		named_weights = [w for c, w in zip(members, weights, strict=True) if c is not walk_in]
+		dates = random_dates(rng, count, ctx.start_date, ctx.end_date, seasonality, ctx.locale.season_start_month)
+
+		def pick_customer(walk_in=walk_in, named=named, named_weights=named_weights):
+			if walk_in and (not named or rng.random() < 0.5):
+				return walk_in
+			return rng.choices(named, weights=named_weights)[0]
+
+		def pick_lines(n, qty_range):
+			chosen = []
+			while len(chosen) < min(n, len(item_keys)):
+				k = rng.choices(item_keys, weights=item_weights)[0]
+				if k not in chosen:  # never repeat an item in one document (A-9)
+					chosen.append(k)
+			lines = []
+			for k in chosen:
+				low, high = qty_range
+				if items[k].sell > 40000:
+					high = max(low, high // 2)
+				lines.append((k, rng.randint(low, high)))
+			return lines
+
+		if "sales_order" in channel["flow"]:
+			plan_order_flow(ctx, tl, rng, channel, dates, pick_customer, pick_lines, items, terms_days)
+		else:
+			plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, items, terms_days)
+
+
+def credit_days(rng, channel, customer, terms_days) -> int:
+	if customer.params.get("payment_terms"):
+		return terms_days[customer.params["payment_terms"]["$ref"]]
+	term = weighted(rng, channel["payment"])
+	return TERM_DAYS.get(term, 0)
+
+
+def amount_of(lines, items, rate_field="sell", taxed=True) -> float:
+	return sum(with_tax(getattr(items[k], rate_field) * q, items[k].tax_rate if taxed else 0) for k, q in lines)
+
+
+def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, items, terms_days):
+	"""Showroom: invoice with stock update, paid at the counter or on credit."""
+	rates = ctx.pack["behavior"]["rates"]
+	sales = []
+	for d in dates:
+		customer = pick_customer()
+		low, high = channel.get("lines", [1, 2])
+		lines = pick_lines(
+			low if rng.random() < 0.7 else rng.randint(low, high), tuple(channel.get("quantity", [1, 2]))
+		)
+		days = 0 if customer.key == "M:customer:walk-in" else credit_days(rng, channel, customer, terms_days)
+		sales.append({"date": d, "customer": customer, "lines": lines, "days": days})
+
+	n = len(sales)
+	recent = [s for s in sales if days_between(s["date"], ctx.end_date) <= 30]
+	for s in rng.sample(recent, min(len(recent), max(1, round(rates["left_in_draft"] * n)))):
+		s["draft"] = True
+	# Cancellations happen on dealer invoices (plan_delivery): cancelling a stock-moving
+	# showroom invoice queues a stock repost that the scheduler then races (F-34).
+	others = [s for s in sales if not s.get("draft")]
+	returnable = [s for s in others if not s.get("cancel") and days_between(s["date"], ctx.end_date) >= 3]
+	for s in rng.sample(returnable, min(len(returnable), max(1, round(rates["returns"] * n)))):
+		s["return"] = True
+
+	for s in sales:
+		key = tl.next_key("SI")
+		lines = [{"item": ref(k), "qty": q, "rate": items[k].sell} for k, q in s["lines"]]
+		amount = amount_of(s["lines"], items, taxed=not ctx.locale.prices_include_tax)  # India: shelf prices include GST
+		draft = bool(s.get("draft"))
+		tl.add(
+			Event(
+				s["date"],
+				"sales_invoice",
+				key,
+				"Sales Invoice",
+				"counter_sales_invoice",
+				{
+					"customer": ref(s["customer"].key),
+					"lines": lines,
+					"credit_days": s["days"],
+					"draft": draft,
+				},
+				consumes=[] if draft else s["lines"],
+			)
+		)
+		if draft:
+			continue
+		paid_now = plan_customer_payment(ctx, tl, rng, key, s["date"], amount, s["days"])
+		if s.get("return"):
+			k, _ = s["lines"][0]
+			rdate = min(s["date"] + timedelta(days=rng.randint(3, 20)), ctx.end_date)
+			rkey = tl.next_key("SRET")
+			tl.add(
+				Event(
+					rdate,
+					"sales_return",
+					rkey,
+					"Sales Invoice",
+					"sales_return",
+					{"against": ref(key), "item": ref(k), "qty": 1},
+				)
+			)
+			if paid_now:
+				tl.add(
+					Event(
+						rdate,
+						"refund",
+						tl.next_key("PE"),
+						"Payment Entry",
+						"refund",
+						# refunded the way it was paid
+						{"credit_note": ref(rkey), **refund_method(ctx, paid_now, rdate)},
+						amount=amount_of([(k, 1)], items, taxed=not ctx.locale.prices_include_tax),  # one unit at the shelf price
+					)
+				)
+
+
+def plan_order_flow(ctx, tl, rng, channel, dates, pick_customer, pick_lines, items, terms_days):
+	"""Dealers and projects: [quotation ->] sales order -> delivery note(s) -> invoice(s) -> payment."""
+	start, end = ctx.start_date, ctx.end_date
+	with_quotation = "quotation" in channel["flow"]
+	qty_range = tuple(channel.get("quantity", [2, 8]))
+	min_lines, max_lines = channel.get("lines", [2, 4])
+	for so_date in dates:
+		customer = pick_customer()
+		lines = pick_lines(rng.randint(min_lines, max_lines), qty_range)
+		days = credit_days(rng, channel, customer, terms_days)
+		dn_date = so_date + timedelta(days=rng.randint(2, 10))
+		so_params = {"delivery_date": min(dn_date, end + timedelta(days=15))}
+		order_lines = [{"item": ref(k), "qty": q, "rate": items[k].sell} for k, q in lines]
+		if with_quotation:
+			q_date = clamp(so_date - timedelta(days=rng.randint(1, 7)), start, so_date)
+			q_key = tl.next_key("QTN")
+			tl.add(
+				Event(
+					q_date,
+					"quotation",
+					q_key,
+					"Quotation",
+					"quotation",
+					{"customer": ref(customer.key), "lines": order_lines},
+				)
+			)
+			so_params["quotation"] = ref(q_key)
+		else:
+			so_params.update(customer=ref(customer.key), lines=order_lines)
+		so_key = tl.next_key("SO")
+		tl.add(Event(so_date, "sales_order", so_key, "Sales Order", "sales_order", so_params))
+		if dn_date > end:
+			continue  # open order, still to deliver
+		partial = rng.random() < PARTIAL_DELIVERY_SHARE
+		first = [(k, max(1, q // 2)) for k, q in lines] if partial else lines
+		plan_delivery(ctx, tl, rng, so_key, dn_date, first, 0.5 if partial else None, items, days)
+		# half the partial deliveries stay open, so "partly delivered" orders show up
+		if partial and rng.random() < 0.5:
+			second_date = dn_date + timedelta(days=rng.randint(7, 20))
+			if second_date <= end:
+				rest = [(k, q - fq) for (k, q), (_, fq) in zip(lines, first, strict=True) if q - fq > 0]
+				plan_delivery(ctx, tl, rng, so_key, second_date, rest, None, items, days)
+
+	# quotations that never became orders
+	lost = round(len(dates) * LOST_QUOTATION_SHARE) if with_quotation else 0
+	seasonality = ctx.pack["behavior"]["seasonality"]["monthly_index"]
+	for q_date in random_dates(rng, lost, start, end, seasonality, ctx.locale.season_start_month):
+		customer = pick_customer()
+		lines = pick_lines(rng.randint(1, max_lines), qty_range)
+		tl.add(
+			Event(
+				q_date,
+				"quotation",
+				tl.next_key("QTN"),
+				"Quotation",
+				"quotation",
+				{
+					"customer": ref(customer.key),
+					"lines": [{"item": ref(k), "qty": q, "rate": items[k].sell} for k, q in lines],
+				},
+			)
+		)
+
+
+def plan_delivery(ctx, tl, rng, so_key, dn_date, lines, fraction, items, days):
+	dn_key = tl.next_key("DN")
+	tl.add(
+		Event(
+			dn_date,
+			"delivery_note",
+			dn_key,
+			"Delivery Note",
+			"delivery_note",
+			{"sales_order": ref(so_key), "fraction": fraction},
+			consumes=lines,
+		)
+	)
+	si_key = tl.next_key("SI")
+	invoice = tl.add(
+		Event(
+			dn_date,
+			"sales_invoice",
+			si_key,
+			"Sales Invoice",
+			"invoice_from_delivery",
+			{"delivery_note": ref(dn_key), "credit_days": days},
+		)
+	)
+	# Some invoices are raised wrongly, cancelled and re-issued from the same delivery
+	# note. No stock moves, so no repost is queued. At least one per install, so the
+	# cancelled state always shows.
+	rate = ctx.pack["behavior"]["rates"]["cancelled"]
+	if rng.random() < rate or (not tl.counters["cancelled"] and tl.counters["DN"] >= 10):
+		tl.counters["cancelled"] += 1
+		tl.add(
+			Event(
+				dn_date,
+				"sales_invoice",
+				f"{si_key}:cancel",
+				"Sales Invoice",
+				"cancel",
+				{"doctype": "Sales Invoice", "doc": ref(si_key)},
+				order=invoice.order,
+				after=1,
+			)
+		)
+		si_key = tl.next_key("SI")
+		tl.add(
+			Event(
+				dn_date,
+				"sales_invoice",
+				si_key,
+				"Sales Invoice",
+				"invoice_from_delivery",
+				{"delivery_note": ref(dn_key), "credit_days": days},
+			)
+		)
+	plan_customer_payment(ctx, tl, rng, si_key, dn_date, amount_of(lines, items, taxed=ctx.sales_tax), days)
+
+
+def reconciled_until(end: date) -> date:
+	"""The books are reconciled with the bank up to the end of the previous month."""
+	return end.replace(day=1) - timedelta(days=1)
+
+
+def counter_modes(pack: dict | None = None) -> tuple[str, ...]:
+	"""Modes the pack's locale collects at the counter (the default locale's without a pack)."""
+	from erpnext_demo_gen.locales import get_locale
+
+	return get_locale(pack).counter_modes
+
+
+def mode_name(banking: dict, mode: str, account: str, collected_at_counter=None) -> str:
+	"""The Mode of Payment name: modes the counter collects carry the receiving bank
+	("UPI - ICICI"), since ERPNext maps a mode to one account per company; others are
+	ERPNext's own."""
+	if mode in (counter_modes() if collected_at_counter is None else collected_at_counter):
+		return f"{mode} - {banking[account]['short']}"
+	return mode
+
+
+def planned_mode_names(banking: dict, collected_at_counter=None) -> set[str]:
+	collected_at_counter = counter_modes() if collected_at_counter is None else collected_at_counter
+	return {
+		mode_name(banking, mode, account_for(payer, mode, collected_at_counter), collected_at_counter)
+		for payer, shares in banking["modes"].items()
+		for mode, share in shares.items()
+		if share
+	}
+
+
+def account_for(payer: str, mode: str, collected_at_counter=None) -> str:
+	collected_at_counter = counter_modes() if collected_at_counter is None else collected_at_counter
+	return "collection" if payer == "counter" and mode in collected_at_counter else "main"
+
+
+def payment_method(ctx, payer: str, amount: float, when: date, mode: str | None = None) -> dict:
+	"""How a payment is made: mode, bank account, bank reference and the date the bank clears it.
+
+	The mode is drawn from the pack's mix for the payer unless given. Uses its own
+	random stream, so payment methods never shift the rest of the plan.
+	clearance_date stays empty for payments after the last bank reconciliation.
+	"""
+	rng = ctx.__dict__.setdefault("_payment_rng", ctx.rng("payment-methods"))
+	banking = ctx.pack["banking"]
+	locale = ctx.locale
+	if mode is None:
+		mode = weighted(rng, banking["modes"][payer])
+		limit = locale.mode_limit(mode, banking)
+		if limit is not None and amount > limit:
+			mode = locale.over_limit_mode(mode)
+	if mode == "Cash":
+		return {"mode": "Cash", "account": "cash"}
+	account = account_for(payer, mode, locale.counter_modes)
+	reference = locale.payment_reference(rng, mode, amount, when, banking[account], banking)
+	low, high = banking["clearing_days"][mode]
+	clears = when + timedelta(days=rng.randint(low, high))
+	return {
+		"mode": mode_name(banking, mode, account, locale.counter_modes),
+		"account": account,
+		"reference": reference,
+		"clearance_date": clears if clears <= reconciled_until(ctx.end_date) else None,
+	}
+
+
+def refund_method(ctx, paid: dict, when: date) -> dict:
+	"""A counter refund goes back the way the sale was paid, with its own reference."""
+	if paid["account"] == "cash":
+		return {"mode": "Cash", "account": "cash"}
+	mode = paid["mode"].split(" - ")[0]  # "UPI - ICICI" -> "UPI"
+	return payment_method(ctx, "counter", 0, when, mode)
+
+
+def ensure_payment_modes(ctx, tl: Timeline):
+	"""Every planned payment mode is used at least once, so each shows up in the demo
+	even at micro size: when one is missing, the smallest suitable payment of a payer
+	that uses it switches to it. Counter payments that are later refunded keep their
+	mode (the refund goes back the same way). Larger sizes are rarely touched.
+	"""
+	banking = ctx.pack["banking"]
+	collected = ctx.locale.counter_modes
+	refunded = {e.params["against"]["$ref"] for e in tl.events if e.builder == "sales_return"}
+
+	def payer(e):
+		if e.builder == "pay_supplier":
+			return "supplier"
+		return "counter" if e.params.get("account") in ("collection", "cash") else "customer"
+
+	payments = [e for e in tl.events if e.builder in ("receive_payment", "pay_supplier")]
+	used = {e.params["mode"] for e in payments}
+	for who, shares in banking["modes"].items():
+		for mode, share in shares.items():
+			name = mode_name(banking, mode, account_for(who, mode, collected), collected)
+			if not share or name in used:
+				continue
+			limit = ctx.locale.mode_limit(mode, banking)
+			fits = [
+				e
+				for e in payments
+				if payer(e) == who
+				and e.params["invoice"]["$ref"] not in refunded
+				and (limit is None or e.amount <= limit)
+				and sum(p.params["mode"] == e.params["mode"] for p in payments) > 1  # keep the old mode in use
+			]
+			if not fits and limit is not None and who == "customer":
+				split_by_limit(ctx, tl, payments, refunded, mode, limit)
+				used.add(name)
+				continue
+			if not fits:
+				continue
+			e = min(fits, key=lambda e: (e.amount, e.key))
+			keep = {k: e.params[k] for k in ("invoice", "fraction") if k in e.params}
+			for k in ("mode", "account", "reference", "clearance_date"):
+				e.params.pop(k, None)
+			e.params.update(keep | payment_method(ctx, who, e.amount, e.date, mode))
+			if e.builder == "receive_payment":
+				e.bank = 0 if e.params["account"] == "cash" else e.amount
+			used.add(name)
+
+
+def split_by_limit(ctx, tl: Timeline, payments: list, refunded: set, mode: str, limit: float):
+	"""Every credit payment is above the mode's limit (India: UPI): the smallest one is
+	split, part paid by that mode first on the same day (under the limit), the rest the
+	usual way."""
+	whole = [
+		e
+		for e in payments
+		if e.builder == "receive_payment"
+		and e.params.get("account") == "main"
+		and e.params.get("fraction") is None
+		and e.params["invoice"]["$ref"] not in refunded
+	]
+	if not whole:
+		return
+	e = min(whole, key=lambda e: (e.amount, e.key))
+	part = round(min(0.9 * limit, 0.5 * e.amount), -3)
+	fraction = round(part / e.amount, 4)
+	tl.add(
+		Event(
+			e.date,
+			"customer_payment",
+			tl.next_key("PE"),
+			"Payment Entry",
+			"receive_payment",
+			{"invoice": e.params["invoice"], "fraction": fraction, **payment_method(ctx, "customer", part, e.date, mode)},
+			order=e.order,
+			after=-1,  # just before the payment of the rest
+			bank=part,
+			amount=part,
+		)
+	)
+	e.amount -= part
+	e.bank -= part
+
+
+def plan_bank_transfers(ctx, tl: Timeline):
+	"""Every week, on the sweep weekday, move what the collection account and the cash
+	box hold into the main account (Internal Transfer); the builder reads the amount
+	from the ledger that morning.
+
+	A running balance per account decides whether there is anything to move: receipts
+	add, counter refunds (card and UPI reversals come out of the collection account)
+	subtract, and each transfer empties it. Amounts are exact (counter prices include
+	GST), so a planned transfer never finds the account empty.
+	"""
+	banking = ctx.pack["banking"]
+	weekday = banking["sweep_weekday"]
+	rng = ctx.rng("bank-transfers")
+	reconciled = reconciled_until(ctx.end_date)
+	for source in ("collection", "cash"):
+		flows = sorted(
+			(e.date, e.order, e.amount if e.builder == "receive_payment" else -e.amount, e.key, e.builder)
+			for e in tl.events
+			if e.builder in ("receive_payment", "refund") and e.params.get("account") == source
+		)
+		if not flows:
+			continue
+		first = flows[0][0]
+		when = first + timedelta(days=(weekday - first.weekday() - 1) % 7 + 1)  # first sweep day after it
+		balance, receipts, i = 0.0, [], 0
+		while when <= ctx.end_date:
+			while i < len(flows) and flows[i][0] < when:
+				_, _, delta, key, builder = flows[i]
+				balance += delta
+				if builder == "receive_payment":
+					receipts.append(key)
+				i += 1
+			if balance > 1 and receipts:
+				reference = ctx.locale.sweep_reference(rng, source, when, banking)
+				tl.add(
+					Event(
+						when,
+						"bank_transfer",
+						tl.next_key("XFER"),
+						"Payment Entry",
+						"bank_transfer",
+						{
+							"source": source,
+							# depends on them: if one failed, the transfer waits for a resume
+							"receipts": [ref(k) for k in receipts],
+							"reference": reference,
+							"clearance_date": when if when <= reconciled else None,
+						},
+					)
+				)
+				balance, receipts = 0.0, []
+			when += timedelta(days=7)
+
+
+def plan_customer_payment(ctx, tl, rng, si_key, si_date, amount, days):
+	"""Schedule receipts for an invoice. Returns the payment method when paid on the
+	spot (at the counter), else None."""
+	end = ctx.end_date
+
+	def receipt(when, fraction=None, last=True, payer="customer"):
+		if when > end:
+			return None
+		share = fraction or 1.0
+		method = payment_method(ctx, payer, amount * share, when)
+		tl.add(
+			Event(
+				when,
+				"customer_payment",
+				tl.next_key("PE"),
+				"Payment Entry",
+				"receive_payment",
+				{"invoice": ref(si_key), "fraction": None if last else fraction, **method},
+				bank=0 if method["account"] == "cash" else amount * share,
+				amount=amount * share,
+			)
+		)
+		return method
+
+	if days == 0:
+		return receipt(si_date, payer="counter")
+	outcome = weighted(rng, ctx.pack["behavior"]["payment_outcomes"])
+	due = si_date + timedelta(days=days)
+	if outcome == "on_time":
+		receipt(si_date + timedelta(days=rng.randint(max(1, days // 2), days)))
+	elif outcome == "late":
+		if rng.random() < SPLIT_LATE_PAYMENT_SHARE:
+			# part now, the rest much later or not yet: "partly paid" invoices
+			first = due + timedelta(days=rng.randint(3, 15))
+			receipt(first, fraction=0.5, last=False)
+			if first <= end and rng.random() < 0.5:
+				receipt(first + timedelta(days=rng.randint(30, 120)), fraction=0.5)
+		else:
+			receipt(due + timedelta(days=rng.randint(5, 60)))
+	# open_overdue: never paid
+	return None
+
+
+def ensure_open_order(ctx, tl: Timeline):
+	"""At least one sales order is still to deliver and bill at the end, so that state
+	shows even in a small plan: when every order is delivered, the latest one whose
+	deliveries were never cancelled or returned keeps them (and their invoices and
+	payments) unmade. Plans that already have one are untouched."""
+	orders = [e for e in tl.events if e.builder == "sales_order"]
+	deliveries = defaultdict(list)
+	for e in tl.events:
+		if e.builder == "delivery_note":
+			deliveries[e.params["sales_order"]["$ref"]].append(e)
+	if not orders or any(not deliveries[o.key] for o in orders):
+		return
+	invoices_of = defaultdict(list)  # delivery note key -> invoice events
+	for e in tl.events:
+		if e.builder == "invoice_from_delivery":
+			invoices_of[e.params["delivery_note"]["$ref"]].append(e)
+	touched = {
+		e.params[k]["$ref"] for e in tl.events for k in ("doc", "against") if e.builder in ("cancel", "sales_return") and k in e.params
+	}
+	for order in sorted(orders, key=lambda e: (e.date, e.key), reverse=True):
+		dns = deliveries[order.key]
+		sis = [si for dn in dns for si in invoices_of[dn.key]]
+		if any(si.key in touched for si in sis):
+			continue
+		drop = {dn.key for dn in dns} | {si.key for si in sis}
+		tl.events = [
+			e
+			for e in tl.events
+			if e.key not in drop and not (e.builder == "receive_payment" and e.params["invoice"]["$ref"] in drop)
+		]
+		return
+
+
+def ensure_overdue(ctx, tl: Timeline):
+	"""At least one credit invoice is open past its due date, so the Overdue state shows
+	even in a small plan: when none is, the latest eligible one keeps its payments
+	unmade. Plans that already have one are untouched."""
+	end = ctx.end_date
+	invoices = [
+		e
+		for e in tl.events
+		if e.builder in ("counter_sales_invoice", "invoice_from_delivery")
+		and e.params.get("credit_days")
+		and not e.params.get("draft")
+	]
+	gone = {e.params["doc"]["$ref"] for e in tl.events if e.builder == "cancel"}
+	gone |= {e.params["against"]["$ref"] for e in tl.events if e.builder == "sales_return"}
+	paid = defaultdict(list)
+	for e in tl.events:
+		if e.builder == "receive_payment":
+			paid[e.params["invoice"]["$ref"]].append(e)
+	candidates = [
+		e for e in invoices if e.key not in gone and e.date + timedelta(days=e.params["credit_days"]) < end - timedelta(days=1)
+	]
+	# open, or only partly paid (a final payment has no fraction): ERPNext shows Overdue
+	if not candidates or any(not any(p.params.get("fraction") is None for p in paid[e.key]) for e in candidates):
+		return
+	latest = max(candidates, key=lambda e: (e.date, e.key))
+	dropped = {id(p) for p in paid[latest.key]}
+	tl.events = [e for e in tl.events if id(e) not in dropped]
+
+
+# ---------------------------------------------------------------- stock and purchases
+def fit_reorder_levels(plan: Plan, tl: Timeline, items: dict[str, ItemInfo]):
+	"""Raise pack reorder levels to the planned demand: at least 2 weeks' sales as the
+	minimum and 4 more weeks on top as the maximum. Without this, a larger size keeps
+	running out between weekly purchases and is resupplied by emergency orders.
+	The item masters get the same levels, so ERPNext's reorder settings match the plan.
+	"""
+	weeks = max(1.0, days_between(plan.ctx.start_date, plan.ctx.end_date) / 7)
+	demand = defaultdict(int)
+	for e in tl.events:
+		for k, q in e.consumes:
+			demand[k] += q
+	params = {d.key: d.params for d in plan.docs if d.doctype == "Item"}
+	for k, info in items.items():
+		weekly = demand[k] / weeks
+		info.reorder_min = max(info.reorder_min, math.ceil(2 * weekly))
+		info.reorder_max = max(info.reorder_max, info.reorder_min + math.ceil(4 * weekly))
+		params[k]["reorder"] = {"min": info.reorder_min, "max": info.reorder_max}
+
+
+def plan_stock_and_purchases(ctx, tl: Timeline, items: dict[str, ItemInfo]):
+	rng = ctx.rng("purchases")
+	start, end = ctx.start_date, ctx.end_date
+	on_hand = defaultdict(int)
+	on_order = defaultdict(int)
+	receipts = defaultdict(list)  # date -> [(item, qty)]
+	consumption = defaultdict(list)
+	for e in tl.events:
+		if e.consumes:
+			consumption[e.date].append(e)
+
+	def buy(order_date, receipt_date, lines, with_request, track=True):
+		"""One supplier's purchase: [material request ->] order -> receipt -> invoice -> payment."""
+		supplier = items[lines[0][0]].supplier
+		po_params = {
+			"supplier": ref(supplier),
+			"lines": [{"item": ref(k), "qty": q, "rate": items[k].buy} for k, q in lines],
+			"schedule_date": receipt_date,
+		}
+		if with_request:
+			mr_key = tl.next_key("MR")
+			tl.add(
+				Event(
+					order_date,
+					"material_request",
+					mr_key,
+					"Material Request",
+					"material_request",
+					{"lines": po_params["lines"], "schedule_date": receipt_date},
+				)
+			)
+			po_params["material_request"] = ref(mr_key)
+		po_key = tl.next_key("PO")
+		tl.add(Event(order_date, "purchase_order", po_key, "Purchase Order", "purchase_order", po_params))
+		if receipt_date > end:
+			return  # still on order at the end of the range
+		pr_key = tl.next_key("PR")
+		tl.add(
+			Event(
+				receipt_date,
+				"purchase_receipt",
+				pr_key,
+				"Purchase Receipt",
+				"purchase_receipt",
+				{"purchase_order": ref(po_key)},
+			)
+		)
+		pi_key = tl.next_key("PI")
+		tl.add(
+			Event(
+				receipt_date,
+				"purchase_invoice",
+				pi_key,
+				"Purchase Invoice",
+				"purchase_invoice",
+				{"purchase_receipt": ref(pr_key), "bill_no": f"INV/{receipt_date.year % 100}/{pi_key[-5:]}"},
+			)
+		)
+		total = sum(with_tax(items[k].buy * q, items[k].purchase_tax_rate) for k, q in lines)
+		due = receipt_date + timedelta(days=SUPPLIER_TERMS_DAYS)
+		pay = (
+			receipt_date + timedelta(days=rng.randint(SUPPLIER_TERMS_DAYS // 2, SUPPLIER_TERMS_DAYS))
+			if rng.random() < SUPPLIER_ON_TIME_SHARE
+			else due + timedelta(days=rng.randint(5, 30))
+		)
+		if pay <= end:
+			tl.add(
+				Event(
+					pay,
+					"supplier_payment",
+					tl.next_key("PE"),
+					"Payment Entry",
+					"pay_supplier",
+					{"invoice": ref(pi_key), **payment_method(ctx, "supplier", total, pay)},
+					bank=-total,
+					amount=total,
+				)
+			)
+		if track:
+			for k, q in lines:
+				receipts[receipt_date].append((k, q))
+				on_order[k] += q
+
+	def by_supplier(lines):
+		groups = defaultdict(list)
+		for k, q in lines:
+			groups[items[k].supplier].append((k, q))
+		return [g for s, g in sorted(groups.items(), key=lambda kv: kv[0] or "") if s]
+
+	# opening stock on the first day: midway between the reorder levels
+	opening = [(k, (i.reorder_min + i.reorder_max + 1) // 2) for k, i in sorted(items.items())]
+	for group in by_supplier(opening):
+		buy(start, start, group, with_request=False)
+
+	day = start
+	while day <= end:
+		for k, q in receipts.pop(day, []):
+			on_hand[k] += q
+			on_order[k] -= q
+		emergency = []
+		for e in sorted(consumption.get(day, []), key=Event.sort_key):
+			for k, q in e.consumes:
+				if on_hand[k] < q:
+					need = q - on_hand[k] + items[k].reorder_min
+					emergency.append((k, need))
+					on_hand[k] += need  # received earlier the same day (receipts sort before sales)
+				on_hand[k] -= q
+		for group in by_supplier(merge_lines(emergency)):
+			# already added to on_hand above, so not tracked as a future receipt
+			buy(
+				max(start, day - timedelta(days=rng.randint(3, 7))),
+				day,
+				group,
+				with_request=False,
+				track=False,
+			)
+
+		reorder = [
+			(k, i.reorder_max - on_hand[k] - on_order[k])
+			for k, i in sorted(items.items())
+			if on_hand[k] + on_order[k] <= i.reorder_min and i.reorder_max > on_hand[k] + on_order[k]
+		]
+		# buyers review stock once a week; shortfalls in between get emergency purchases above
+		order_day = day + timedelta(days=1)
+		if reorder and day.weekday() == REORDER_WEEKDAY and order_day <= end:
+			for group in by_supplier(reorder):
+				buy(order_day, order_day + timedelta(days=rng.randint(3, 7)), group, with_request=True)
+		day += timedelta(days=1)
+
+
+def merge_lines(lines):
+	merged = defaultdict(int)
+	for k, q in lines:
+		merged[k] += q
+	return sorted(merged.items())
+
+
+# ---------------------------------------------------------------- funding
+def plan_funding(ctx, tl: Timeline):
+	"""Owner's capital and a term loan on day one, large enough to keep the bank positive."""
+	funding = ctx.pack["company"].get("funding") or {}
+	capital = funding.get("share_capital", 0)
+	loan = funding.get("term_loan", 0)
+	balance = lowest = capital + loan
+	for e in sorted(tl.events, key=Event.sort_key):
+		balance += e.bank
+		lowest = min(lowest, balance)
+	floor = ctx.pack["banking"].get("cash_floor", BANK_FLOOR)
+	if lowest < floor:
+		loan += math.ceil((floor - lowest) / floor) * floor
+	tl.add(
+		Event(
+			ctx.start_date,
+			"funding",
+			"T:JV:000001",
+			"Journal Entry",
+			"funding_entry",
+			{"share_capital": capital, "term_loan": loan},
+			order=0,
+		)
+	)
+
+
+# ---------------------------------------------------------------- emit
+def emit(plan: Plan, tl: Timeline):
+	events = sorted(tl.events, key=Event.sort_key)
+	per_day = defaultdict(int)
+	for e in events:
+		per_day[e.date] += 1
+	seen = defaultdict(int)
+	for e in events:
+		n = per_day[e.date]
+		step = 120 if n * 120 < 10 * 3600 else max(1, (10 * 3600) // n)
+		seconds = 9 * 3600 + seen[e.date] * step
+		seen[e.date] += 1
+		time = f"{seconds // 3600:02d}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
+		plan.add(e.key, e.doctype, e.builder, e.params, posting_date=e.date, posting_time=time)

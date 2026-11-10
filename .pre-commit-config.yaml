@@ -8,7 +8,7 @@ repos:
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
-        files: "demo_data.*"
+        files: "erpnext_demo_gen.*"
         exclude: ".*json$|.*txt$|.*csv|.*md|.*svg"
       - id: check-merge-conflict
       - id: check-ast
@@ -38,11 +38,11 @@ repos:
         # Ignore any files that might contain jinja / bundles
         exclude: |
             (?x)^(
-                demo_data/public/dist/.*|
+                erpnext_demo_gen/public/dist/.*|
                 .*node_modules.*|
                 .*boilerplate.*|
-                demo_data/templates/includes/.*|
-                demo_data/public/js/lib/.*
+                erpnext_demo_gen/templates/includes/.*|
+                erpnext_demo_gen/public/js/lib/.*
             )$
 
 
@@ -55,12 +55,12 @@ repos:
         # Ignore any files that might contain jinja / bundles
         exclude: |
             (?x)^(
-                demo_data/public/dist/.*|
+                erpnext_demo_gen/public/dist/.*|
                 cypress/.*|
                 .*node_modules.*|
                 .*boilerplate.*|
-                demo_data/templates/includes/.*|
-                demo_data/public/js/lib/.*
+                erpnext_demo_gen/templates/includes/.*|
+                erpnext_demo_gen/public/js/lib/.*
             )$
 
 ci:

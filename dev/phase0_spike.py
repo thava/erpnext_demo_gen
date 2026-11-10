@@ -1,4 +1,4 @@
-"""Phase 0 runtime spike for demo_data. Run one step at a time:
+"""Phase 0 runtime spike for erpnext_demo_gen. Run one step at a time:
 bench --site demo-data.localhost execute "...spike.run" --kwargs '{"step": "company"}'
 """
 

@@ -1,9 +1,9 @@
 [project]
-name = "demo_data"
+name = "erpnext_demo_gen"
 authors = [
     { name = "Thava Alagu", email = "thavamuni@gmail.com"}
 ]
-description = "Realistic, removable India demo data for ERPNext v16+"
+description = "Generates realistic, removable demo data for ERPNext v16+"
 requires-python = ">=3.14"
 readme = "README.md"
 dynamic = ["version"]

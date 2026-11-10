@@ -51,5 +51,9 @@ jspm_packages/
 # Helix Editor
 .helix/
 
+# CLAUDE
+CLAUDE.local.md
+.claude/settings.local.json
+
 # Aider AI Chat
 .aider*

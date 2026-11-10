@@ -1,13 +1,12 @@
-# Demo Data
+# erpnext_demo_gen: Demo Generator for ERPNext
 
-Realistic, removable demo data for ERPNext v16+, for India, the United States (Texas), the United Arab Emirates (Dubai) and Germany (Munich).
+Generates realistic, removable demo data for ERPNext v16+, for India, the United States (Texas), the United Arab Emirates (Dubai) and Germany (Munich).
 
 Status: Phase 2. `install` creates a demo company with its country's set-up, masters
 and a quarter (Micro), a year (Small) or two (Medium) of purchases, sales, payments,
 returns, open items and own-use supplies; `verify` checks the result; `uninstall`
 removes it. Packs: `furniture_store` (India, US, UAE, Germany) and `electrical_distributor`
-(India). The requirements and design live in the bench folder:
-`demo-data-req-design.md`.
+(India).
 
 ## Requirements
 
@@ -15,19 +14,26 @@ frappe and erpnext v16+, a finished setup wizard in the pack's country and curre
 and a running Redis queue (ERPNext's Transaction Deletion Record needs it). India
 packs also need india_compliance.
 
+## Installation
+
+```bash
+bench get-app https://github.com/thava/erpnext_demo_gen
+bench --site <site> install-app erpnext_demo_gen
+```
+
 ## Usage
 
 ```bash
-bench --site <site> demo-data list-packs                      # packs, their countries and sizes
-bench --site <site> demo-data install --country IN|US|AE|DE [--pack furniture_store] [--size micro|small|medium] \
+bench --site <site> demo-gen list-packs                      # packs, their countries and sizes
+bench --site <site> demo-gen install --country IN|US|AE|DE [--pack furniture_store] [--size micro|small|medium] \
       [--seed N] [--end-date YYYY-MM-DD] [--home-state TN] [--demo-company-name NAME] [--use-wizard-company]
       [--no-gst | --fictitious-gstin] [--force]
-bench --site <site> demo-data status                          # what is installed now
-bench --site <site> demo-data history [--run DD-RUN-00001]     # install/uninstall events, newest first
-bench --site <site> demo-data verify [--run DD-RUN-00001]      # exits 1 if a check fails
-bench --site <site> demo-data uninstall [--run DD-RUN-00001] [--registry-only] [--no-backup] [--yes]
-bench demo-data snapshot build --country IN|US|AE|DE [--pack furniture_store] [--size small]   # see Snapshots
-bench demo-data snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
+bench --site <site> demo-gen status                          # what is installed now
+bench --site <site> demo-gen history [--run DD-RUN-00001]     # install/uninstall events, newest first
+bench --site <site> demo-gen verify [--run DD-RUN-00001]      # exits 1 if a check fails
+bench --site <site> demo-gen uninstall [--run DD-RUN-00001] [--registry-only] [--no-backup] [--yes]
+bench demo-gen snapshot build --country IN|US|AE|DE [--pack furniture_store] [--size small]   # see Snapshots
+bench demo-gen snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
 ```
 
 - `--country` is required for `install` and `snapshot build`: there is no default, so
@@ -317,15 +323,15 @@ site is disposable: explore it, then drop it with `bench drop-site`.
 
 ```bash
 # build (on a throwaway site: setup wizard, install, verify, back up, drop)
-bench demo-data snapshot build --country IN --pack furniture_store --size small \
+bench demo-gen snapshot build --country IN --pack furniture_store --size small \
       --db-root-password ... [--mariadb-user-host-login-scope '%']
 
 # create a new site from it
-bench demo-data snapshot new-site mydemo.localhost demo-snapshots/demo-furniture_store-small-...sql.gz \
+bench demo-gen snapshot new-site mydemo.localhost demo-snapshots/demo-furniture_store-small-...sql.gz \
       --admin-password ... --db-root-password ... [--mariadb-user-host-login-scope '%']
 ```
 
-- Snapshots are written to `<bench>/demo-snapshots/`: `demo-<pack>-<size>-s<seed>-f<frappe>-e<erpnext>-ic<india_compliance>-dd<demo_data>-<date>.sql.gz`
+- Snapshots are written to `<bench>/demo-snapshots/`: `demo-<pack>-<size>-s<seed>-f<frappe>-e<erpnext>-ic<india_compliance>-dd<erpnext_demo_gen>-<date>.sql.gz`
   and a `.json` manifest beside it (pack, seed, data period, app versions and commits,
   document counts, checksum).
 - The site has one company, the demo company, and one user, Administrator. Its
@@ -343,20 +349,33 @@ bench demo-data snapshot new-site mydemo.localhost demo-snapshots/demo-furniture
 - The data ends on the build date; the build date and data period are printed on
   restore.
 
-`demo-data uninstall` with `--use-wizard-company` (demo data in your own company)
+`demo-gen uninstall` with `--use-wizard-company` (demo data in your own company)
 backs up the site first, as `bench drop-site` does; skip it with `--no-backup`.
 
 ## Development
 
 ```bash
-bench --site demo-data.localhost run-tests --app demo_data       # unit tests (planner, packs, generators)
-bench --site demo-data.localhost execute demo_data.tests.smoke.run \
-      --kwargs '{"pack": "furniture_store", "seed": 11}'          # micro install, verify, uninstall, compare counts
+bench --site demo-data.localhost run-tests --app erpnext_demo_gen       # unit tests (planner, packs, generators)
+bench --site demo-data.localhost execute erpnext_demo_gen.tests.smoke.run \
+      --kwargs '{"country": "IN", "pack": "furniture_store", "seed": 11}'   # micro install, verify, uninstall, compare counts
 # add "size": "small" (or "medium") to test a larger size
 ```
 
-`dev/phase0_spike.py` is the Phase 0 runtime spike (see section 6.2 of the design).
+`dev/phase0_spike.py` is the Phase 0 runtime spike (measures ERPNext's write speed and checks
+its assumptions on a scratch site).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md): bug reports, questions and ideas are welcome as
+issues; pull requests are not accepted for now.
 
 ## License
 
-GPL-3.0
+Copyright (C) 2026 Thava Alagu.
+
+This program is free software: you can redistribute it and/or modify it under the terms
+of the GNU General Public License version 3, as published by the Free Software
+Foundation. See [license.txt](license.txt).
+
+ERPNext and Frappe are trademarks of Frappe Technologies Pvt. Ltd. This project is
+independent and is not affiliated with or endorsed by Frappe Technologies.

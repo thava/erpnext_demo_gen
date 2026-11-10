@@ -65,7 +65,7 @@ jobs:
       - uses: ./.github/actions/setup-bench
       - name: Unit tests
         working-directory: ${{ env.BENCH }}
-        run: bench --site ci.localhost run-tests --app demo_data
+        run: bench --site ci.localhost run-tests --app erpnext_demo_gen
       - name: Smoke test, furniture_store micro
         working-directory: ${{ env.BENCH }}
         run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN furniture_store micro 1
@@ -109,7 +109,7 @@ jobs:
         run: |
           for spec in "IN furniture_store" "IN electrical_distributor" "US furniture_store" "AE furniture_store" "DE furniture_store"; do
             set -- $spec
-            bench demo-data snapshot build --country "$1" --pack "$2" --size small \
+            bench demo-gen snapshot build --country "$1" --pack "$2" --size small \
               --db-root-password "$DB_ROOT_PASSWORD" --mariadb-user-host-login-scope '%'
           done
       - name: Medium snapshot
@@ -126,7 +126,7 @@ jobs:
             if [ $((10#$week % 2)) -eq 0 ]; then pack=electrical_distributor; else pack=furniture_store; fi
           fi
           echo "Medium snapshot for $pack ($MEDIUM_COUNTRY, ISO week $(date -u +%V))"
-          bench demo-data snapshot build --country "$MEDIUM_COUNTRY" --pack "$pack" --size medium \
+          bench demo-gen snapshot build --country "$MEDIUM_COUNTRY" --pack "$pack" --size medium \
             --db-root-password "$DB_ROOT_PASSWORD" --mariadb-user-host-login-scope '%'
       - name: Restore check
         working-directory: ${{ env.BENCH }}
@@ -137,7 +137,7 @@ jobs:
             n=$((n + 1))
             site="restore-check-$n.localhost"
             echo "::group::$dump"
-            bench demo-data snapshot new-site "$site" "$PWD/$dump" \
+            bench demo-gen snapshot new-site "$site" "$PWD/$dump" \
               --admin-password restore-check --db-root-password "$DB_ROOT_PASSWORD" \
               --mariadb-user-host-login-scope '%'
             bench purge-jobs --site "$site" || true   # no worker in CI (F-30)
