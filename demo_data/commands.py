@@ -1,14 +1,14 @@
 """bench --site <site> demo-data ...
 
     demo-data list-packs
-    demo-data install --country IN|US|AE [--pack furniture_store] [--size micro|small|medium] [--seed N] [--end-date YYYY-MM-DD]
+    demo-data install --country IN|US|AE|DE [--pack furniture_store] [--size micro|small|medium] [--seed N] [--end-date YYYY-MM-DD]
                       [--home-state TN] [--demo-company-name NAME] [--use-wizard-company]
                       [--no-gst | --fictitious-gstin] [--force]
     demo-data status
     demo-data history [--run DD-RUN-00001] [--limit 10]
     demo-data verify [--run DD-RUN-00001]
     demo-data uninstall [--run DD-RUN-00001] [--registry-only] [--no-backup]
-    demo-data snapshot build --country IN|US|AE [--pack furniture_store] [--size small] [--seed N]
+    demo-data snapshot build --country IN|US|AE|DE [--pack furniture_store] [--size small] [--seed N]
     demo-data snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
 
 Thin wrappers over demo_data.service (M-13).
@@ -19,7 +19,7 @@ from frappe.commands import get_site, pass_context
 
 from demo_data.packs import SIZES
 
-COUNTRY_HELP = 'Country of the demo (required): IN, US or AE, or the name, e.g. India, "United States", UAE (case, spaces and hyphens ignored)'
+COUNTRY_HELP = 'Country of the demo (required): IN, US, AE or DE, or the name, e.g. India, "United States", UAE, Germany (case, spaces and hyphens ignored)'
 PACK_HELP = "Pack name (see list-packs). Default: the country's default pack"
 
 
@@ -50,14 +50,15 @@ def _run(context, fn):
 
 @click.group("demo-data")
 def demo_data():
-	"""Install, check and remove realistic demo data for ERPNext. India and the US (Texas).
+	"""Install, check and remove realistic demo data for ERPNext: India, the US (Texas), the UAE and Germany.
 
-	install and snapshot build need --country (IN, US or AE; no default, so the country
+	install and snapshot build need --country (IN, US, AE or DE; no default, so the country
 	is always a deliberate choice); --pack is optional (the country's default pack).
 	India: INR prices, customers and suppliers with GSTINs, GST through india_compliance
 	(which must be installed); --no-gst --force for a business not registered for GST.
 	US: a Texas business selling in Texas, USD, sales and use tax.
 	AE: a VAT-registered Dubai business, AED, 5% VAT (ERPNext's UAE VAT 201 report).
+	DE: a Munich GmbH, EUR, SKR04 chart, 19% / 7% VAT (ERPNext's German tax templates).
 	--use-wizard-company needs the default company in that country and currency.
 	"""
 

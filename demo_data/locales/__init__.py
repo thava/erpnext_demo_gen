@@ -100,6 +100,9 @@ class Locale:
 	currency = ""
 	company_suffix = ""  # legal form appended to generated company names
 	timezone = ""  # for the setup wizard of a snapshot build site
+	wizard_chart = "Standard"  # chart of accounts of a snapshot build site's wizard company
+	# ledgers of the opening funding entry, by account_name (the chart's own names)
+	funding_accounts = {"share_capital": "Capital Stock", "term_loan": "Secured Loans"}
 
 	def company_fields(self, params) -> dict:
 		"""Fields of the new demo Company beyond its name and abbreviation."""
@@ -207,13 +210,17 @@ def get_locale(code_or_pack: str | dict | None = None) -> Locale:
 			from demo_data.locales.ae import AELocale
 
 			_LOCALES[code] = AELocale()
+		elif code == "DE":
+			from demo_data.locales.de import DELocale
+
+			_LOCALES[code] = DELocale()
 		else:
 			raise KeyError(f"unknown locale {code!r}; known: {', '.join(known_locales())}")
 	return _LOCALES[code]
 
 
 def known_locales() -> tuple[str, ...]:
-	return ("IN", "US", "AE")
+	return ("IN", "US", "AE", "DE")
 
 
 def squash(text: str) -> str:

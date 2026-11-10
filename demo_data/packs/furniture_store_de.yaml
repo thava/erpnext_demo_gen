@@ -1,0 +1,52 @@
+# Munich furniture store (Möbelhaus) with a trade (interior designers, hotels, office fit-out) channel.
+schema_version: 1
+id: furniture_store_de
+pack: furniture_store               # the German version of furniture_store (file ids are internal)
+extends: de_trading
+pack_version: 1
+title: Furniture Store (Munich)
+
+company:
+  industry_nouns: [Möbel, Wohnen, Einrichtung, Möbelhaus]
+  warehouses: [Showroom, Warehouse]
+  funding: {share_capital: 150000, term_loan: 150000}
+
+parties:
+  customer_nouns: [Innenarchitektur, Objekteinrichtung, Hotels, Immobilien, Büroeinrichtung, Wohndesign]
+  supplier_nouns: [Möbelwerke, Polstermöbel, Schreinerei, Matratzen, Wohnmöbel]
+  walk_in_customer: true
+
+channels:
+  - id: showroom
+    share: 0.65
+    party_class: b2c
+    payment: {immediate: 0.85, net_15: 0.15}
+    flow: [sales_invoice, payment_entry]
+  - id: trade_projects
+    share: 0.35
+    party_class: b2b
+    payment: {net_15: 0.5, net_30: 0.5}
+    flow: [quotation, sales_order, delivery_note, sales_invoice, payment_entry]
+
+catalog:
+  item_groups: [Living Room, Bedroom, Dining, Office, Storage]
+  series: [Allgäu, Chiemsee, Tegernsee, Garmisch, Rosenheim, Lindau, Bamberg, Würzburg, Passau, Landshut,
+           Füssen, Starnberg, Ammersee, Königssee, Spessart, Rhön, Eifel, Harz, Sylt, Rügen, Usedom, Föhr,
+           Amrum, Borkum, Juist, Heidelberg, Tübingen, Konstanz, Schwarzwald, Odenwald, Taunus, Westerwald,
+           Sauerland, Lüneburg, Celle, Goslar, Weimar, Potsdam, Meißen, Görlitz, Bautzen, Kempten, Coburg,
+           Ansbach, Erlangen, Fürth, Kulmbach, Bayreuth]
+  families:
+    - {id: sofa,         group: Living Room, name_template: "{series} {n}-Seat Sofa", options: {n: [2, 3]}, count: 6, price_range: [799, 2999], cost_ratio: [0.50, 0.62], reorder: {min: 4, max: 20}}
+    - {id: corner_sofa,  group: Living Room, name_template: "{series} Corner Sofa",     count: 3, price_range: [1299, 3999], cost_ratio: [0.50, 0.62], reorder: {min: 2, max: 8}}
+    - {id: armchair,     group: Living Room, name_template: "{series} Armchair",        count: 4, price_range: [299, 999],  cost_ratio: [0.50, 0.62], reorder: {min: 4, max: 16}}
+    - {id: bed,          group: Bedroom,     name_template: "{series} Bed {size}", options: {size: ["140x200", "160x200", "180x200"]}, count: 5, price_range: [599, 2199], cost_ratio: [0.50, 0.62], reorder: {min: 2, max: 10}}
+    - {id: wardrobe,     group: Bedroom,     name_template: "{series} {n}-Door Wardrobe", options: {n: [2, 3, 4]}, count: 4, price_range: [699, 2499], cost_ratio: [0.50, 0.62], reorder: {min: 2, max: 8}}
+    - {id: mattress,     group: Bedroom,     name_template: "{series} Pocket Spring Mattress", count: 4, price_range: [299, 1299], cost_ratio: [0.45, 0.58], reorder: {min: 4, max: 20}}
+    - {id: dining_table, group: Dining,      name_template: "{series} Dining Table", count: 4, price_range: [499, 1999], cost_ratio: [0.50, 0.62], reorder: {min: 2, max: 8}}
+    - {id: dining_chair, group: Dining,      name_template: "{series} Dining Chair",  count: 4, price_range: [129, 399],  cost_ratio: [0.48, 0.60], reorder: {min: 8, max: 40}}
+    - {id: office_chair, group: Office,      name_template: "{series} Office Chair",  count: 4, price_range: [199, 899],  cost_ratio: [0.50, 0.62], reorder: {min: 6, max: 30}}
+    - {id: desk,         group: Office,      name_template: "{series} Height-Adjustable Desk", count: 3, price_range: [399, 1299], cost_ratio: [0.50, 0.62], reorder: {min: 3, max: 12}}
+    - {id: shelf,        group: Storage,     name_template: "{series} Shelf Unit",    count: 4, price_range: [149, 799],  cost_ratio: [0.48, 0.60], reorder: {min: 3, max: 12}}
+
+behavior:
+  seasonality: {monthly_index: [1.2, 0.9, 1.0, 0.9, 0.9, 0.8, 0.8, 0.8, 1.0, 1.1, 1.3, 1.0]}

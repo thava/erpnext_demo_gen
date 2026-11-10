@@ -214,9 +214,13 @@ def _save(doc, pd, submit=True, fill_taxes=False, tax_inclusive=False):
 	Orders built on the server get a tax template during validation but no tax
 	rows (F-16). Rows are appended after the first save, as a user would, and the
 	second save lets ERPNext and india_compliance compute every amount; computing
-	them before insert leaves india_compliance's per-row GST amounts stale.
+	them before insert leaves india_compliance's per-row GST amounts stale. A locale
+	may fill the rows itself before insert (Germany: F-48); they are kept.
 	"""
 	_dated(doc, pd)
+	if fill_taxes and tax_inclusive and doc.get("taxes"):  # rows the locale filled
+		for row in doc.taxes:
+			row.included_in_print_rate = 1
 	insert(doc)
 	if fill_taxes and doc.get("taxes_and_charges") and not doc.get("taxes"):
 		doc.append_taxes_from_master()
@@ -252,11 +256,11 @@ def funding_entry(p, w, pd):
 	accounts = [{"account": w.bank_ledger, "debit_in_account_currency": p.share_capital + p.term_loan}]
 	if p.share_capital:
 		accounts.append(
-			{"account": _account(w.company, "Capital Stock"), "credit_in_account_currency": p.share_capital}
+			{"account": _account(w.company, w.locale.funding_accounts["share_capital"]), "credit_in_account_currency": p.share_capital}
 		)
 	if p.term_loan:
 		accounts.append(
-			{"account": _account(w.company, "Secured Loans"), "credit_in_account_currency": p.term_loan}
+			{"account": _account(w.company, w.locale.funding_accounts["term_loan"]), "credit_in_account_currency": p.term_loan}
 		)
 	doc = frappe.get_doc(
 		{

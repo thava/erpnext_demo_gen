@@ -241,7 +241,7 @@ def complete_setup(pack: str, seed: int = 1, company: str | None = None):
 			"currency": locale.currency,
 			"company_name": name,
 			"company_abbr": abbr,
-			"chart_of_accounts": "Standard",
+			"chart_of_accounts": locale.wizard_chart,
 			"fy_start_date": str(start),
 			"fy_end_date": str(end),
 		}

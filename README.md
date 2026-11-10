@@ -1,11 +1,11 @@
 # Demo Data
 
-Realistic, removable demo data for ERPNext v16+, for India, the United States (Texas) and the United Arab Emirates (Dubai).
+Realistic, removable demo data for ERPNext v16+, for India, the United States (Texas), the United Arab Emirates (Dubai) and Germany (Munich).
 
 Status: Phase 2. `install` creates a demo company with its country's set-up, masters
 and a quarter (Micro), a year (Small) or two (Medium) of purchases, sales, payments,
 returns, open items and own-use supplies; `verify` checks the result; `uninstall`
-removes it. Packs: `furniture_store` (India, US, UAE) and `electrical_distributor`
+removes it. Packs: `furniture_store` (India, US, UAE, Germany) and `electrical_distributor`
 (India). The requirements and design live in the bench folder:
 `demo-data-req-design.md`.
 
@@ -19,21 +19,21 @@ packs also need india_compliance.
 
 ```bash
 bench --site <site> demo-data list-packs                      # packs, their countries and sizes
-bench --site <site> demo-data install --country IN|US|AE [--pack furniture_store] [--size micro|small|medium] \
+bench --site <site> demo-data install --country IN|US|AE|DE [--pack furniture_store] [--size micro|small|medium] \
       [--seed N] [--end-date YYYY-MM-DD] [--home-state TN] [--demo-company-name NAME] [--use-wizard-company]
       [--no-gst | --fictitious-gstin] [--force]
 bench --site <site> demo-data status                          # what is installed now
 bench --site <site> demo-data history [--run DD-RUN-00001]     # install/uninstall events, newest first
 bench --site <site> demo-data verify [--run DD-RUN-00001]      # exits 1 if a check fails
 bench --site <site> demo-data uninstall [--run DD-RUN-00001] [--registry-only] [--no-backup] [--yes]
-bench demo-data snapshot build --country IN|US|AE [--pack furniture_store] [--size small]   # see Snapshots
+bench demo-data snapshot build --country IN|US|AE|DE [--pack furniture_store] [--size small]   # see Snapshots
 bench demo-data snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
 ```
 
 - `--country` is required for `install` and `snapshot build`: there is no default, so
   the country is always a deliberate choice. It takes a code or a name, ignoring case,
   spaces and hyphens (`IN`, `india`, `US`, `USA`, `"United States"`, `united-states`,
-  `AE`, `UAE`, `united-arab-emirates`).
+  `AE`, `UAE`, `united-arab-emirates`, `DE`, `Germany`, `Deutschland`).
   `--pack` is optional: each country has a default pack (`list-packs` shows them).
   A pack can exist for several countries (`furniture_store` is IN and US); the country
   is never part of the pack name.
@@ -178,6 +178,36 @@ invoices. Out of scope: imports and reverse charge, zero-rated exports, tourist 
 excise, designated zones. `--home-state` takes an emirate (DU, AZ, SH, AJ, RK, FU, UQ or
 the name). General information, not tax advice.
 
+## Germany (Munich)
+
+`--country DE` (pack `furniture_store`) is a VAT-registered Munich furniture store (GmbH)
+with a trade channel (interior designers, hotels, office fit-out), on the SKR04 chart
+with ERPNext's own German tax set-up:
+
+```
+chart           SKR04 mit Kontonummern; ERPNext creates its tax templates with the company
+VAT             sales "Lieferung oder sonstige Leistung im Inland", purchases "Lieferung
+                aus dem Inland": rows for 19 % and 7 % at rate 0; each item's Item Tax
+                Template ("19 %", "7 %") sets the rate, so one invoice can mix both
+rates           furniture 19 %; staff coffee 7 % (food); bottled water 19 %
+prices          shop prices include VAT (Preisangabenverordnung)
+defaults        income, receivable, payable, cash and expense defaults set to the usual
+                SKR04 ledgers (4400, 1200, 3300, 1600, 5200) where ERPNext picked others
+parties         USt-IdNr. (valid check digit) for VAT-registered businesses; Bundesländer,
+                5-digit postcodes, +49 numbers
+banking         Stadtsparkasse München and Deutsche Bank accounts with valid-format IBANs;
+                SEPA transfer, SEPA direct debit, card (collection account) and cash; EUR
+```
+
+`verify` checks that every invoice's VAT matches its items' rates, that the 7 % items
+are billed at 7 %, and that the VAT accounts match the invoices (the UStVA totals:
+output VAT, input VAT, payable). The install fills each order's tax rows itself, so
+ERPNext's "Automatically add Taxes and Charges from Item Tax Template" (on by default)
+can stay on. `--use-wizard-company` needs a company on the SKR04 chart. Out of scope:
+EU and non-EU trade (reverse charge), Kleinunternehmer suppliers, DATEV export,
+e-invoicing (XRechnung, ZUGFeRD). `--home-state` takes a Bundesland (BY, BE, HH, NW, BW,
+HE, NI, SN, RP, SH or the name). General information, not tax advice.
+
 ## Own-use supplies
 
 Every pack also keeps supplies for its own use, as any business does: copier paper,
@@ -261,7 +291,8 @@ Measured on a laptop (MariaDB in Docker); each submitted transaction takes about
 | furniture_store | about 290 documents, 1.2 minutes | about 1,200 documents, 5 minutes | about 18,500 documents, 1.5 hours |
 | electrical_distributor | about 320 documents, 1.4 minutes | about 1,500 documents, 6 minutes | about 23,300 documents, 2 to 2.5 hours |
 | furniture_store (US) | about 300 documents, 1 minute | about 1,200 documents, 5 minutes | about 19,000 documents, 1.7 hours |
-| furniture_store (AE) | about 300 documents, 1 minute | about 1,200 documents, 5 minutes | about 19,000 documents (planned) |
+| furniture_store (AE) | about 300 documents, 1 minute | about 1,200 documents, 5 minutes | about 18,900 documents, 1 hour (CI) |
+| furniture_store (DE) | about 310 documents, 1 minute | about 1,200 documents, 4 minutes | about 19,400 documents, 1 hour (CI) |
 
 **Micro** is for quick tests and reproducing bugs, not for demos: few customers and
 items, one quarter of data. It still covers every feature the demo has (quotations

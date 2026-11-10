@@ -1,7 +1,7 @@
 name: CI
 
 # Every push and pull request: unit tests and a micro smoke test per pack (install,
-# verify, uninstall, compare table counts), India, US and UAE. Nightly: Small snapshots for
+# verify, uninstall, compare table counts), India, US, UAE and Germany. Nightly: Small snapshots for
 # every pack too. Weekly or on request: one Medium snapshot, electrical_distributor in even ISO
 # weeks and furniture_store in odd ones. Every snapshot a run builds is restored on
 # a new site and verified, then kept as a build artifact. A failure means ERPNext,
@@ -25,7 +25,7 @@ on:
         description: Country of the Medium snapshot
         type: choice
         default: IN
-        options: [IN, US, AE]
+        options: [IN, US, AE, DE]
       medium_pack:
         description: Pack for the Medium snapshot (this-week alternates India's packs by ISO week)
         type: choice
@@ -78,6 +78,9 @@ jobs:
       - name: Smoke test, furniture_store (AE) micro (UAE site)
         working-directory: ${{ env.BENCH }}
         run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" AE furniture_store micro 1 ci-ae.localhost
+      - name: Smoke test, furniture_store (DE) micro (Germany site)
+        working-directory: ${{ env.BENCH }}
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" DE furniture_store micro 1 ci-de.localhost
 
   snapshots:
     name: Snapshots
@@ -104,7 +107,7 @@ jobs:
         if: inputs.snapshots != 'medium'
         working-directory: ${{ env.BENCH }}
         run: |
-          for spec in "IN furniture_store" "IN electrical_distributor" "US furniture_store" "AE furniture_store"; do
+          for spec in "IN furniture_store" "IN electrical_distributor" "US furniture_store" "AE furniture_store" "DE furniture_store"; do
             set -- $spec
             bench demo-data snapshot build --country "$1" --pack "$2" --size small \
               --db-root-password "$DB_ROOT_PASSWORD" --mariadb-user-host-login-scope '%'

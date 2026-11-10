@@ -1,5 +1,5 @@
 name: Set up bench
-description: Python, Node, system packages, then a Frappe v16 bench with erpnext, india_compliance, this app and sites ci.localhost (India), ci-us.localhost (US) and ci-ae.localhost (UAE)
+description: Python, Node, system packages, then a Frappe v16 bench with erpnext, india_compliance, this app and sites ci.localhost (India), ci-us.localhost (US), ci-ae.localhost (UAE) and ci-de.localhost (Germany)
 runs:
   using: composite
   steps:

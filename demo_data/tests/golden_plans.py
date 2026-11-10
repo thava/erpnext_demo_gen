@@ -31,6 +31,8 @@ CASES = {
 	"furniture_store_us-small-s8": ("furniture_store_us", "small", 8, "Texas", True),
 	"furniture_store_ae-micro-s9": ("furniture_store_ae", "micro", 9, "Dubai", True),
 	"furniture_store_ae-small-s10": ("furniture_store_ae", "small", 10, "Dubai", True),
+	"furniture_store_de-micro-s11": ("furniture_store_de", "micro", 11, "Bayern", True),
+	"furniture_store_de-small-s12": ("furniture_store_de", "small", 12, "Bayern", True),
 }
 
 

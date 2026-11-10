@@ -363,8 +363,16 @@ def person(rng: random.Random, state: str) -> tuple[str, str]:
 	return rng.choice(first), rng.choice(last)
 
 
+# German umlauts are written out; other accents lose their mark (ş -> s, é -> e)
+_TRANSLITERATE = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss", "ı": "i"})
+
+
 def slug(text: str) -> str:
-	return "".join(ch for ch in text.lower() if ch.isalnum())
+	"""Lower-case ASCII letters and digits only (e-mail addresses, lookups)."""
+	import unicodedata
+
+	text = unicodedata.normalize("NFKD", text.lower().translate(_TRANSLITERATE))
+	return "".join(ch for ch in text if ch.isascii() and ch.isalnum())
 
 
 def email_for_person(rng: random.Random, first: str, last: str) -> str:
