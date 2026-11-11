@@ -1,0 +1,149 @@
+name: Release
+
+# Pushing a tag vX.Y.Z builds the release snapshots: Small and Medium for every
+# country and pack, one job each. Each snapshot is restored on a new site and
+# verified, then attached to a draft GitHub release. When all ten pass, the
+# release is published with notes listing the snapshots and the versions they
+# were built on. The tag must match erpnext_demo_gen.__version__.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)build the snapshots for, e.g. v0.1.0
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  DB_ROOT_PASSWORD: root
+  BENCH: /home/runner/frappe-bench
+  TAG: ${{ inputs.tag || github.ref_name }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  draft:
+    name: Draft release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - name: Tag matches the app version
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' erpnext_demo_gen/__init__.py)
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::tag $TAG does not match __version__ $version"
+            exit 1
+          fi
+      - name: Create the draft release
+        run: |
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG exists; its snapshots will be replaced"
+          else
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "$TAG" --notes "Snapshots are being built."
+          fi
+
+  snapshot:
+    name: ${{ matrix.target.country }} ${{ matrix.target.pack }} ${{ matrix.size }}
+    needs: draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        size: [small, medium]
+        target:
+          - {country: IN, pack: furniture_store}
+          - {country: IN, pack: electrical_distributor}
+          - {country: US, pack: furniture_store}
+          - {country: AE, pack: furniture_store}
+          - {country: DE, pack: furniture_store}
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: ./.github/actions/setup-bench
+        env:
+          SKIP_SITES: "1"
+      - name: Build the snapshot
+        working-directory: ${{ env.BENCH }}
+        run: |
+          bench demo-gen snapshot build --country "${{ matrix.target.country }}" --pack "${{ matrix.target.pack }}" \
+            --size "${{ matrix.size }}" --db-root-password "$DB_ROOT_PASSWORD" --mariadb-user-host-login-scope '%'
+      - name: Restore check
+        working-directory: ${{ env.BENCH }}
+        run: |
+          # snapshot new-site checks the checksum and versions, restores and runs verify
+          dump=$(ls demo-snapshots/*.sql.gz)
+          bench demo-gen snapshot new-site restore-check.localhost "$PWD/$dump" \
+            --admin-password restore-check --db-root-password "$DB_ROOT_PASSWORD" \
+            --mariadb-user-host-login-scope '%'
+      - name: Attach to the release
+        working-directory: ${{ env.BENCH }}
+        run: |
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber demo-snapshots/*.sql.gz demo-snapshots/*.json
+
+  publish:
+    name: Publish release
+    needs: snapshot
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Write the notes and publish
+        run: |
+          mkdir manifests && cd manifests
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p '*.json'
+          python3 - > ../notes.md <<'EOF'
+          import json, glob, os
+          tag, repo = os.environ["TAG"], os.environ["GITHUB_REPOSITORY"]
+          rows = [json.load(open(f)) for f in sorted(glob.glob("*.json"))]
+          names = {"IN": "India", "US": "United States", "AE": "UAE", "DE": "Germany"}
+          print("Ready-made demo sites for ERPNext. Restore one in about 15 seconds instead of")
+          print("installing for minutes or hours. See the README's Snapshots section.\n")
+          print("## Snapshots\n")
+          order = list(names)
+          for m in rows:
+              m.setdefault("country", "IN")             # manifests before format 1 had no country
+              m.setdefault("pack_name", m["pack"])
+          for m in sorted(rows, key=lambda m: (order.index(m["country"]), m["pack_name"], m["size"] != "small")):
+              docs = sum(m["documents"].values())
+              print(f"- **{names.get(m['country'], m['country'])}, {m['pack_name']}, {m['size']}**: "
+                    f"{m['company']}, {docs:,} documents, data {m['data_from']} to {m['data_to']}  ")
+              print(f"  `{m['dump']}`")
+          print("\n## Built on\n")
+          for app in ("frappe", "erpnext", "erpnext_demo_gen", "india_compliance"):
+              info = next((m["apps"][app] for m in rows if app in m["apps"]), None)
+              if info:
+                  only = ", India snapshots only" if app == "india_compliance" else ""
+                  print(f"- {app} {info['version']} ({info['commit']}){only}")
+          print(f"- MariaDB {rows[0]['mariadb']}")
+          print("\n## Restore\n")
+          print("```bash")
+          print(f"gh release download {tag} -R {repo} -p '*furniture_store-IN-small*'")
+          print("bench demo-gen snapshot new-site mydemo.localhost demo-furniture_store-IN-small-....sql.gz")
+          print("```\n")
+          print("- Restores on a v16 bench at the release above or newer (the site is migrated after restore).")
+          print("  An older bench, or another major version, is refused.")
+          print("- India snapshots need india_compliance on the bench.")
+          print("- The Administrator password is `changeme` unless you pass `--admin-password`.")
+          print("- The data is fictional. Each `.json` manifest has the checksum, app commits and document counts.")
+          EOF
+          cd ..
+          cat notes.md
+          gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --notes-file notes.md --draft=false --latest

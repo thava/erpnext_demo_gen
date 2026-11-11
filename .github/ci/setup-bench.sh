@@ -3,6 +3,7 @@
 # with the setup wizard completed: $SITE (India, with india_compliance), $US_SITE (United
 # States), $AE_SITE (United Arab Emirates) and $DE_SITE (Germany, SKR04 chart); the last
 # three have erpnext and this app only. Used by every CI job (.github/workflows/ci.yml).
+# SKIP_SITES=1 stops after the apps (release.yml: snapshot build makes its own sites).
 #
 # Expects MariaDB on 127.0.0.1:3306 (root password $DB_ROOT_PASSWORD) and Redis on
 # 127.0.0.1:6379, both as service containers. The app's checkout is $GITHUB_WORKSPACE.
@@ -36,6 +37,12 @@ bench get-app erpnext --branch "$BRANCH" --skip-assets
 bench get-app india_compliance https://github.com/resilient-tech/india-compliance --branch "$BRANCH" --skip-assets
 bench get-app erpnext_demo_gen "$GITHUB_WORKSPACE" --skip-assets
 done_step
+
+if [ "${SKIP_SITES:-}" = 1 ]; then
+	# snapshot builds make their own sites (release workflow)
+	echo "bench ready: $BENCH (no sites, SKIP_SITES=1)"
+	exit 0
+fi
 
 step "new site $SITE"
 bench new-site "$SITE" --db-root-password "$DB_ROOT_PASSWORD" --admin-password admin \
