@@ -199,7 +199,7 @@ bench --site demo.localhost demo-gen install --country US --size medium   # 24 m
   the demo makes, but few customers and items.
 - `small` is the default and suits most demos.
 - `medium` looks like a real business, but takes an hour or more.
-  Use a [snapshot](#snapshots) to build it once and restore it in seconds.
+  [Download a ready-made snapshot](#download-a-ready-made-snapshot) instead, and restore it in seconds.
 - Times for every pack are under [Sizes](#sizes).
 
 ### Get the same data again, or different data
@@ -693,7 +693,39 @@ A snapshot is a ready-made demo site: a database dump plus a manifest.
 - A snapshot site is disposable: explore it, then drop it with `bench drop-site`.
 - Snapshot commands need no `--site`. They create their own sites.
 
-Build a snapshot:
+### Download a ready-made snapshot
+
+Each [release](https://github.com/thava/erpnext_demo_gen/releases) has Small and Medium
+snapshots for every country and pack, built and verified in CI:
+
+```
+India            furniture_store, electrical_distributor     small, medium
+United States    furniture_store                              small, medium
+UAE              furniture_store                              small, medium
+Germany          furniture_store                              small, medium
+```
+
+Download one and make a site from it:
+
+```bash
+gh release download v0.1.0 -R thava/erpnext_demo_gen -p '*furniture_store-IN-medium*'
+# Downloads the dump (.sql.gz) and its manifest (.json).
+
+bench demo-gen snapshot new-site mumbai.localhost demo-furniture_store-IN-medium-*.sql.gz
+# Creates mumbai.localhost with two years of data, in about 15 seconds.
+```
+
+- File names follow `demo-<pack>-<country>-<size>-...`, so `'*-DE-small*'` picks
+  Germany's Small snapshot. Without `gh`, download from the release page in a browser.
+- The bench needs the same major version (v16), at the release the snapshot was built on
+  or newer. A newer bench migrates the site after restore. The release notes list the versions.
+- India snapshots need india_compliance on the bench.
+- The data ends on the day the release was built.
+
+### Build your own
+
+Build a snapshot when you want another seed, an end date of your own, or a
+snapshot that matches your bench exactly:
 
 ```bash
 bench demo-gen snapshot build --country DE --size medium
