@@ -46,6 +46,9 @@ class IndiaLocale(Locale):
 	season_start_month = 4  # seasonality index 0 = April, the fiscal year start
 
 	def regions(self) -> list[str]:
+		return sorted(geo.PARTY_STATES)
+
+	def home_regions(self) -> list[str]:
 		return sorted(geo.CITIES)
 
 	def person(self, rng: random.Random, region: str) -> tuple[str, str]:

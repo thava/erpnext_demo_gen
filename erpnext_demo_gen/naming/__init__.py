@@ -355,6 +355,16 @@ STATE_REGION = {
 	"Bihar": "east",
 	"Jharkhand": "east",
 	"Assam": "east",
+	"Sikkim": "east",
+	"Tripura": "east",
+	"Arunachal Pradesh": "east",
+	"Manipur": "east",
+	"Meghalaya": "east",
+	"Mizoram": "east",
+	"Nagaland": "east",
+	"Andaman and Nicobar Islands": "east",
+	"Lakshadweep Islands": "south",
+	"Dadra and Nagar Haveli and Daman and Diu": "west",
 }
 
 

@@ -42,6 +42,10 @@ class TestGeo(UnitTestCase):
 			for city, prefix in cities:
 				self.assertTrue(any(lo <= prefix <= hi for lo, hi in ranges), f"{city}, {state}: {prefix}")
 
+	def test_every_state_can_be_home(self):
+		self.assertEqual(set(geo.CITIES), set(geo.STATE_ABBREVIATIONS))
+		self.assertLessEqual(set(geo.PARTY_STATES), set(geo.CITIES))
+
 	def test_make_address_passes_pincode_validation(self):
 		import frappe
 		from india_compliance.gst_india.utils import validate_pincode

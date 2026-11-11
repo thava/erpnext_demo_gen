@@ -239,13 +239,16 @@ bench --site demo.localhost demo-gen uninstall --yes
 The demo company's address is in the pack's home state. Change it with `--home-state`:
 
 ```bash
-bench --site demo.localhost demo-gen install --country IN --home-state KA         # Karnataka (default: Tamil Nadu)
-bench --site demo.localhost demo-gen install --country IN --home-state 29         # the same, by GST state code
+bench --site demo.localhost demo-gen install --country IN --home-state MH         # Maharashtra (default: Tamil Nadu)
+bench --site demo.localhost demo-gen install --country IN --home-state 27         # the same, by GST state code
 bench --site demo.localhost demo-gen install --country AE --home-state SH         # Sharjah (default: Dubai)
 bench --site demo.localhost demo-gen install --country DE --home-state HH         # Hamburg (default: Bayern)
 ```
 
-- India: a state name, a code (TN, KA) or a GST state code (33).
+- India: any state or union territory, by name ("Maharashtra"), two-letter code (MH)
+  or GST state code (27).
+- Customers outside the home state, and suppliers, are placed in the larger
+  commercial states.
 - UAE: an emirate (DU, AZ, SH, AJ, RK, FU, UQ) or its name.
 - Germany: a Bundesland (BY, BE, HH, NW, BW, HE, NI, SN, RP, SH) or its name.
 - US: only TX.
@@ -423,7 +426,7 @@ rule 2    no state                      template: Input GST Out-state (no ITC)
 - **Customers only in your state.** An unregistered business cannot sell to another
   state, or to an SEZ: that needs GST registration at any turnover.
   The demo uses Tamil Nadu as the home state, as an example, and puts every customer
-  in Tamil Nadu. With `--home-state KA`, every customer is in Karnataka instead.
+  in Tamil Nadu. With `--home-state MH`, every customer is in Maharashtra instead.
   Suppliers can be anywhere.
 - **Turnover above the threshold.** The demo uses the pack's normal volume. That is above
   the registration threshold (Rs 40 lakh a year for goods; Rs 20 lakh in special-category

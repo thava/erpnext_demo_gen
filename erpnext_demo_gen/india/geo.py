@@ -48,7 +48,30 @@ CITIES = {
 	"Bihar": [("Patna", 800)],
 	"Jharkhand": [("Ranchi", 834), ("Jamshedpur", 831)],
 	"Assam": [("Guwahati", 781)],
+	# Home states only: customers and suppliers stay in PARTY_STATES (see below).
+	"Andaman and Nicobar Islands": [("Port Blair", 744)],
+	"Arunachal Pradesh": [("Itanagar", 791), ("Tawang", 790)],
+	"Dadra and Nagar Haveli and Daman and Diu": [("Silvassa", 396), ("Daman", 396), ("Diu", 362)],
+	"Himachal Pradesh": [("Shimla", 171), ("Solan", 173), ("Mandi", 175), ("Dharamshala", 176)],
+	"Jammu and Kashmir": [("Srinagar", 190), ("Jammu", 180), ("Anantnag", 192)],
+	"Ladakh": [("Leh", 194), ("Kargil", 194)],
+	"Lakshadweep Islands": [("Kavaratti", 682)],
+	"Manipur": [("Imphal", 795)],
+	"Meghalaya": [("Shillong", 793), ("Tura", 794)],
+	"Mizoram": [("Aizawl", 796)],
+	"Nagaland": [("Kohima", 797), ("Dimapur", 797)],
+	"Sikkim": [("Gangtok", 737)],
+	"Tripura": [("Agartala", 799)],
 }
+
+# States where other parties (customers outside the home state, suppliers) are placed.
+# Kept to the original list so that adding home states does not change existing seeds' data.
+PARTY_STATES = (
+	"Andhra Pradesh", "Assam", "Bihar", "Chandigarh", "Chhattisgarh", "Delhi", "Goa", "Gujarat",
+	"Haryana", "Jharkhand", "Karnataka", "Kerala", "Madhya Pradesh", "Maharashtra", "Odisha",
+	"Puducherry", "Punjab", "Rajasthan", "Tamil Nadu", "Telangana", "Uttar Pradesh",
+	"Uttarakhand", "West Bengal",
+)
 
 STREETS = [
 	"Anna Salai",
