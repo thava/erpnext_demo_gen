@@ -1,44 +1,44 @@
-name: Release
+name: Snapshots release
 
-# Builds and publishes snapshots: Small and Medium for every country and pack, one
-# job each. Each snapshot is restored on a new site and verified before it is attached.
+# Publishes ready-made snapshots: Small and Medium for every country and pack, one job
+# each. Each snapshot is restored on a new site and verified; a set is published only
+# when all ten pass. App versions (tags vX.Y.Z) are released separately and carry no
+# snapshots.
 #
-#   tag vX.Y.Z        version-16 release: a draft release, published with notes when all
-#                     ten pass. The tag must match erpnext_demo_gen.__version__.
-#   weekly (Sunday)   develop snapshots: the rolling pre-release "develop-snapshots" is
-#                     rebuilt on Frappe/ERPNext/india_compliance develop; its files are
-#                     replaced only when all ten pass.
-#   workflow_dispatch either channel ("release" needs an existing tag).
+#   monthly (1st)     version-16: a new release snapshots-YYYY-MM built on the current
+#                     version-16 of Frappe, ERPNext and india_compliance. The three newest
+#                     sets are kept, so benches on an earlier version-16 minor release can
+#                     use an older set (restore migrates forward).
+#   weekly (Sunday)   develop: the rolling pre-release develop-snapshots, rebuilt on
+#                     develop; its files are replaced each time.
+#   workflow_dispatch either channel; a second monthly run in a month replaces that
+#                     month's files.
 
 on:
-  push:
-    tags: ["v*"]
   schedule:
-    - cron: "30 22 * * 6" # Sunday 04:00 IST, after CI's weekly Medium run
+    - cron: "0 0 1 * *" # monthly, 05:30 IST on the 1st: version-16 set
+    - cron: "30 22 * * 6" # weekly, Sunday 04:00 IST: develop set
   workflow_dispatch:
     inputs:
       channel:
-        description: release (a version-16 tag) or develop (the rolling pre-release)
+        description: monthly (version-16 set) or develop (rolling pre-release)
         type: choice
-        default: develop
-        options: [develop, release]
-      tag:
-        description: For release, the existing tag to (re)build, e.g. v0.1.0
-        required: false
+        default: monthly
+        options: [monthly, develop]
 
 permissions:
   contents: write
-
-concurrency:
-  group: release-${{ inputs.channel || (github.event_name == 'schedule' && 'develop') || 'release' }}
-  cancel-in-progress: false
 
 env:
   DB_ROOT_PASSWORD: root
   BENCH: /home/runner/frappe-bench
   GH_TOKEN: ${{ github.token }}
-  CHANNEL: ${{ inputs.channel || (github.event_name == 'schedule' && 'develop') || 'release' }}
-  DEVELOP_TAG: develop-snapshots
+  CHANNEL: ${{ inputs.channel || (github.event.schedule == '0 0 1 * *' && 'monthly') || 'develop' }}
+  KEEP_MONTHS: 3
+
+concurrency:
+  group: snapshots-${{ inputs.channel || (github.event.schedule == '0 0 1 * *' && 'monthly') || 'develop' }}
+  cancel-in-progress: false
 
 jobs:
   draft:
@@ -46,36 +46,17 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
-      ref: ${{ steps.tag.outputs.ref }}
       branch: ${{ steps.tag.outputs.branch }}
     steps:
-      - name: Tag, app ref and Frappe branch
+      - name: Tag and Frappe branch
         id: tag
-        env:
-          INPUT_TAG: ${{ inputs.tag }}
         run: |
           if [ "$CHANNEL" = develop ]; then
-            echo "tag=$DEVELOP_TAG" >> "$GITHUB_OUTPUT"
-            echo "ref=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+            echo "tag=develop-snapshots" >> "$GITHUB_OUTPUT"
             echo "branch=develop" >> "$GITHUB_OUTPUT"
           else
-            tag="${INPUT_TAG:-$GITHUB_REF_NAME}"
-            echo "tag=$tag" >> "$GITHUB_OUTPUT"
-            echo "ref=$tag" >> "$GITHUB_OUTPUT"
+            echo "tag=snapshots-$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
             echo "branch=version-16" >> "$GITHUB_OUTPUT"
-          fi
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ steps.tag.outputs.ref }}
-      - name: Tag matches the app version
-        if: env.CHANNEL == 'release'
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' erpnext_demo_gen/__init__.py)
-          if [ "v$version" != "$TAG" ]; then
-            echo "::error::tag $TAG does not match __version__ $version"
-            exit 1
           fi
       - name: Create the release if missing
         env:
@@ -87,8 +68,10 @@ jobs:
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" --prerelease --latest=false \
               --target "$GITHUB_SHA" --title "Develop snapshots (rolling)" --notes "Snapshots are being built."
           else
-            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --verify-tag \
-              --title "$TAG" --notes "Snapshots are being built."
+            # a draft until all ten pass
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --latest=false \
+              --target "$GITHUB_SHA" --title "Snapshots ${TAG#snapshots-} (Frappe/ERPNext version-16)" \
+              --notes "Snapshots are being built."
           fi
 
   snapshot:
@@ -123,8 +106,6 @@ jobs:
         ports: ["6379:6379"]
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.draft.outputs.ref }}
       - uses: ./.github/actions/setup-bench
       - name: Build the snapshot
         working-directory: ${{ env.BENCH }}
@@ -162,8 +143,7 @@ jobs:
         run: |
           ls -l snapshots
           gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber snapshots/*
-          # then remove files of earlier builds (develop is rebuilt weekly), so the
-          # release is never empty in between
+          # then remove files of earlier builds of the same release, so it is never empty in between
           for old in $(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name'); do
             [ -e "snapshots/$old" ] || gh release delete-asset "$TAG" "$old" -R "$GITHUB_REPOSITORY" --yes
           done
@@ -176,37 +156,40 @@ jobs:
           rows = [json.load(open(f)) for f in sorted(glob.glob("*.json"))]
           names = {"IN": "India", "US": "United States", "AE": "UAE", "DE": "Germany"}
           order = list(names)
+          built = rows[0]["built_at"][:10]
           if channel == "develop":
-              print("Rolling snapshots for Frappe/ERPNext **develop** (the next major version), rebuilt")
-              print("every week. For a released version, use the latest versioned release instead.\n")
+              print(f"Demo snapshots for Frappe/ERPNext **develop** (the next major version), built {built}.")
+              print("Rebuilt every week; its files are replaced each time.\n")
           else:
-              print("Ready-made demo sites for ERPNext. Restore one in about 15 seconds instead of")
-              print("installing for minutes or hours. See the README's Snapshots section.\n")
+              print(f"Demo snapshots for **Frappe/ERPNext version-16**, built {built}. A new set is")
+              print("published every month and the last three are kept. See the README's")
+              print("\"Download a ready-made snapshot\" section.\n")
+          print("## Built on\n")
+          for app in ("frappe", "erpnext", "india_compliance", "erpnext_demo_gen"):
+              info = next((m["apps"][app] for m in rows if app in m["apps"]), None)
+              if info:
+                  when = f", {info['date'][:10]}" if info.get("date") else ""
+                  only = ", India snapshots only" if app == "india_compliance" else ""
+                  print(f"- {app} {info['version']} ({info['commit']}{when}){only}")
+          print(f"- MariaDB {rows[0]['mariadb']}\n")
+          if channel == "develop":
+              print("Restores on a develop bench at the commits above or newer (`bench update` first);")
+              print("the site is migrated after restore.\n")
+          else:
+              print("Restores on a bench with these Frappe and ERPNext versions or later ones of version-16:")
+              print("restoring migrates it forward. For an earlier version-16 minor release of Frappe or")
+              print("ERPNext, use an older `snapshots-YYYY-MM` set.\n")
           print("## Snapshots\n")
           for m in sorted(rows, key=lambda m: (order.index(m["country"]), m["pack_name"], m["size"] != "small")):
               docs = sum(m["documents"].values())
               print(f"- **{names[m['country']]}, {m['pack_name']}, {m['size']}**: "
                     f"{m['company']}, {docs:,} documents, data {m['data_from']} to {m['data_to']}  ")
               print(f"  `{m['dump']}`")
-          print("\n## Built on\n")
-          for app in ("frappe", "erpnext", "erpnext_demo_gen", "india_compliance"):
-              info = next((m["apps"][app] for m in rows if app in m["apps"]), None)
-              if info:
-                  when = f", {info['date'][:10]}" if info.get("date") else ""
-                  only = ", India snapshots only" if app == "india_compliance" else ""
-                  print(f"- {app} {info['version']} ({info['commit']}{when}){only}")
-          print(f"- MariaDB {rows[0]['mariadb']}")
           print("\n## Restore\n")
           print("```bash")
-          print(f"gh release download {tag} -R {repo} -p '*furniture_store-IN-small*'")
-          print("bench demo-gen snapshot new-site mydemo.localhost demo-furniture_store-IN-small-*.sql.gz")
+          print(f"gh release download {tag} -R {repo} -p '*furniture_store-IN-medium*'")
+          print("bench demo-gen snapshot new-site mydemo.localhost demo-furniture_store-IN-medium-*.sql.gz")
           print("```\n")
-          if channel == "develop":
-              print("- Needs a develop bench at the commits above or newer (`bench update` first);")
-              print("  the site is migrated after restore. A version-16 bench is refused.")
-          else:
-              print("- Restores on a v16 bench at the release above or newer (the site is migrated after restore).")
-              print("  An older bench, or another major version, is refused.")
           print("- India snapshots need india_compliance on the bench.")
           print("- The Administrator password is `changeme` unless you pass `--admin-password`.")
           print("- The data is fictional. Each `.json` manifest has the checksum, app commits and document counts.")
@@ -216,5 +199,14 @@ jobs:
           if [ "$CHANNEL" = develop ]; then
             gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --notes-file notes.md --prerelease --latest=false
           else
-            gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --notes-file notes.md --draft=false --latest
+            gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --notes-file notes.md --draft=false --latest=false
           fi
+      - name: Keep the newest monthly sets
+        if: env.CHANNEL == 'monthly'
+        run: |
+          gh release list -R "$GITHUB_REPOSITORY" --limit 100 --json tagName,isDraft -q '.[] | select(.isDraft | not) | .tagName' \
+            | { grep -E '^snapshots-[0-9]{4}-[0-9]{2}$' || true; } | sort -r | tail -n +$((KEEP_MONTHS + 1)) \
+            | while read -r old; do
+                echo "removing $old"
+                gh release delete "$old" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
+              done
