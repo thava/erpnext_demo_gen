@@ -1,6 +1,6 @@
 name: CI
 
-# Every push and pull request: unit tests and a micro smoke test per pack (install,
+# Every push and pull request: unit tests and a small-size smoke test per pack (install,
 # verify, uninstall, compare table counts), India, US, UAE and Germany, on Frappe,
 # ERPNext and india_compliance version-16 and again on develop (the next major
 # version). develop failures are reported but do not fail the run: they warn early
@@ -8,12 +8,12 @@ name: CI
 #
 # Snapshots (one job each; every snapshot is restored on a new site and verified,
 # then kept as a build artifact for 14 days):
-#   nightly          Small, every country and pack, on version-16 and develop.
+#   nightly          medium, every country and pack, on version-16 and develop.
 #                    A branch's jobs are skipped when neither upstream (frappe,
 #                    erpnext, india_compliance) nor this app changed since the last
 #                    successful nightly build of the same snapshot.
-#   weekly           Medium, every country and pack, on version-16. (develop's
-#                    Medium snapshots are built weekly by release.yml.)
+#   weekly           large, every country and pack, on version-16. (develop's
+#                    large snapshots are built weekly by release.yml.)
 #   workflow_dispatch  any size, branch and country, never skipped.
 # A failure means ERPNext, india_compliance or this app has drifted (requirement M-13).
 
@@ -24,15 +24,15 @@ on:
   pull_request:
     paths-ignore: ["**.md", "license.txt"]
   schedule:
-    - cron: "30 20 * * *" # nightly, 02:00 IST: tests and Small snapshots
-    - cron: "30 21 * * 6" # weekly, Sunday 03:00 IST: Medium snapshots on version-16
+    - cron: "30 20 * * *" # nightly, 02:00 IST: tests and medium snapshots
+    - cron: "30 21 * * 6" # weekly, Sunday 03:00 IST: large snapshots on version-16
   workflow_dispatch:
     inputs:
       snapshots:
         description: Snapshots to build after the tests
         type: choice
         default: none
-        options: [none, small, small+medium, medium]
+        options: [none, small, medium, medium+large, large]
       branch:
         description: Frappe/ERPNext branch for the snapshots
         type: choice
@@ -86,21 +86,21 @@ jobs:
       - name: Unit tests
         working-directory: ${{ env.BENCH }}
         run: bench --site ci.localhost run-tests --app erpnext_demo_gen
-      - name: Smoke test, furniture_store micro
+      - name: Smoke test, furniture_store small
         working-directory: ${{ env.BENCH }}
-        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN furniture_store micro 1
-      - name: Smoke test, electrical_distributor micro
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN furniture_store small 1
+      - name: Smoke test, electrical_distributor small
         working-directory: ${{ env.BENCH }}
-        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN electrical_distributor micro 1
-      - name: Smoke test, furniture_store_us micro (US site)
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN electrical_distributor small 1
+      - name: Smoke test, furniture_store_us small (US site)
         working-directory: ${{ env.BENCH }}
-        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" US furniture_store micro 1 ci-us.localhost
-      - name: Smoke test, furniture_store (AE) micro (UAE site)
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" US furniture_store small 1 ci-us.localhost
+      - name: Smoke test, furniture_store (AE) small (UAE site)
         working-directory: ${{ env.BENCH }}
-        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" AE furniture_store micro 1 ci-ae.localhost
-      - name: Smoke test, furniture_store (DE) micro (Germany site)
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" AE furniture_store small 1 ci-ae.localhost
+      - name: Smoke test, furniture_store (DE) small (Germany site)
         working-directory: ${{ env.BENCH }}
-        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" DE furniture_store micro 1 ci-de.localhost
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" DE furniture_store small 1 ci-de.localhost
 
   plan:
     name: Plan snapshots
@@ -123,7 +123,7 @@ jobs:
                      ("US", "furniture_store"), ("AE", "furniture_store"), ("DE", "furniture_store")]
           if os.environ["EVENT"] == "schedule":
               weekly = os.environ["SCHEDULE"] == "30 21 * * 6"
-              sizes = ["medium"] if weekly else ["small"]
+              sizes = ["large"] if weekly else ["medium"]
               branches = ["version-16"] if weekly else ["version-16", "develop"]
               country, skip_unchanged = "all", not weekly
           else:

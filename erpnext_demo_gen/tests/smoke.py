@@ -72,7 +72,7 @@ def snapshot() -> dict:
 def run(
 	country: str | None = None,
 	pack: str | None = None,
-	size: str = "micro",
+	size: str = "small",
 	seed: int = 11,
 	end_date: str | None = None,
 	use_wizard_company: bool = False,

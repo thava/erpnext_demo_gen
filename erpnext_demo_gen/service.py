@@ -187,7 +187,7 @@ def find_resumable(params: dict) -> Run | None:
 
 def install(
 	pack=None,
-	size="small",
+	size="medium",
 	seed=1,
 	end_date=None,
 	home_state=None,

@@ -169,7 +169,7 @@ def plan_customers(plan: Plan):
 def ensure_channel_members(plan: Plan):
 	"""Every channel needs a customer, or its whole flow (e.g. quotations) is missing.
 
-	With few customers (micro) a weighted draw can leave a channel empty; then the
+	With few customers (small size) a weighted draw can leave a channel empty; then the
 	busiest channel of the same class gives up its last customer. Larger sizes are
 	untouched, so their plans do not change.
 	"""

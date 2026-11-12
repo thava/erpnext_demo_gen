@@ -68,6 +68,6 @@ supplies:
     - {code: SUP-WATER,     name: "Mineral Water (crate of 12)",      cost: 7,  use_per_month: [8, 14], stock: false, supplier: 2, expense_account: Freiwillige soziale Aufwendungen lohnsteuerfrei}
 
 sizes:
-  micro:  {months: 3,  customers: 6,   suppliers: 3,  items: 12,  sales_invoices: 35,   purchase_invoices: 12}   # quick tests, about 1 minute
-  small:  {months: 12, customers: 15,  suppliers: 8,  items: 40,  sales_invoices: 150,  purchase_invoices: 60}
-  medium: {months: 24, customers: 150, suppliers: 30, items: 250, sales_invoices: 4000, purchase_invoices: 900}
+  small:  {months: 3,  customers: 6,   suppliers: 3,  items: 12,  sales_invoices: 35,   purchase_invoices: 12}   # quick tests, about 1 minute
+  medium: {months: 12, customers: 15,  suppliers: 8,  items: 40,  sales_invoices: 150,  purchase_invoices: 60}
+  large:  {months: 24, customers: 150, suppliers: 30, items: 250, sales_invoices: 4000, purchase_invoices: 900}

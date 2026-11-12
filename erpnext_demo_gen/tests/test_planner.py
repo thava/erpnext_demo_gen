@@ -7,7 +7,7 @@ from erpnext_demo_gen.packs import load_pack
 from erpnext_demo_gen.planner import PlanContext, make_plan
 
 
-def plan(size="small", seed=1, home="Tamil Nadu", pack_id="furniture_store", sales_tax=True):
+def plan(size="medium", seed=1, home="Tamil Nadu", pack_id="furniture_store", sales_tax=True):
 	pack = load_pack(pack_id)
 	ctx = PlanContext(pack, size, seed, home, dt.date(2025, 11, 9), dt.date(2026, 11, 8), sales_tax)
 	return pack, make_plan(ctx)
@@ -28,7 +28,7 @@ class TestMasterPlan(UnitTestCase):
 
 	def test_small_counts_follow_the_size(self):
 		pack, docs = plan()
-		size = pack["sizes"]["small"]
+		size = pack["sizes"]["medium"]
 		counts = by_doctype(docs)
 		self.assertEqual(counts["Item"], size["items"])
 		self.assertEqual(counts["Item Price"], 2 * size["items"])
@@ -38,8 +38,8 @@ class TestMasterPlan(UnitTestCase):
 		self.assertEqual(counts["Payment Terms Template"], 2)  # net_15, net_30
 
 	def test_medium_scales(self):
-		pack, docs = plan("medium")
-		self.assertEqual(by_doctype(docs)["Item"], pack["sizes"]["medium"]["items"])
+		pack, docs = plan("large")
+		self.assertEqual(by_doctype(docs)["Item"], pack["sizes"]["large"]["items"])
 
 	def test_refs_point_backwards_and_seq_is_ordered(self):
 		_, docs = plan()
@@ -50,7 +50,7 @@ class TestMasterPlan(UnitTestCase):
 			seen.add(d.key)
 
 	def test_names_unique_and_counter_free(self):
-		_, docs = plan("medium")
+		_, docs = plan("large")
 		for doctype in ("Item", "Customer", "Supplier"):
 			names = [d.params["name"] for d in docs if d.doctype == doctype]
 			self.assertEqual(len(names), len(set(names)), doctype)
@@ -63,7 +63,7 @@ class TestMasterPlan(UnitTestCase):
 
 		from erpnext_demo_gen.india.geo import state_code
 
-		_, docs = plan("medium")
+		_, docs = plan("large")
 		categories = Counter()
 		for d in docs:
 			if d.doctype not in ("Customer", "Supplier"):
@@ -162,11 +162,11 @@ class TestTransactionPlan(UnitTestCase):
 
 	def test_sales_volume_follows_size(self):
 		invoices = sum(1 for d in self.tx if d.builder in ("counter_sales_invoice", "invoice_from_delivery"))
-		target = self.pack["sizes"]["small"]["sales_invoices"]
+		target = self.pack["sizes"]["medium"]["sales_invoices"]
 		self.assertLess(abs(invoices - target), target * 0.15)
 
 
-def plan_for_pack(pack_id, size="small", seed=1):
+def plan_for_pack(pack_id, size="medium", seed=1):
 	pack = load_pack(pack_id)
 	ctx = PlanContext(pack, size, seed, "Tamil Nadu", dt.date(2025, 11, 9), dt.date(2026, 11, 8))
 	return pack, make_plan(ctx)
@@ -193,7 +193,7 @@ class TestElectricalPack(UnitTestCase):
 
 class TestReorderFit(UnitTestCase):
 	def test_reorder_levels_cover_medium_demand(self):
-		pack, docs = plan_for_pack("furniture_store", "medium")
+		pack, docs = plan_for_pack("furniture_store", "large")
 		pack_levels = {f["id"]: f["reorder"] for f in pack["catalog"]["families"]}
 		items = [d for d in docs if d.doctype == "Item" and d.params["family"] != "supplies"]
 		raised = sum(1 for d in items if d.params["reorder"]["max"] > pack_levels[d.params["family"]]["max"])
@@ -201,7 +201,7 @@ class TestReorderFit(UnitTestCase):
 		for d in items:
 			self.assertLess(d.params["reorder"]["min"], d.params["reorder"]["max"])
 		invoices = sum(1 for d in docs if d.builder == "purchase_invoice")
-		self.assertLess(invoices, 2 * pack["sizes"]["medium"]["purchase_invoices"])
+		self.assertLess(invoices, 2 * pack["sizes"]["large"]["purchase_invoices"])
 
 
 class TestPaymentMethods(UnitTestCase):
@@ -242,7 +242,7 @@ class TestPaymentMethods(UnitTestCase):
 		from erpnext_demo_gen.planner.transactions import payment_method
 
 		pack, _ = plan()
-		ctx = PlanContext(pack, "small", 3, "Tamil Nadu", dt.date(2025, 11, 9), dt.date(2026, 11, 8))
+		ctx = PlanContext(pack, "medium", 3, "Tamil Nadu", dt.date(2025, 11, 9), dt.date(2026, 11, 8))
 		big = [payment_method(ctx, "customer", 500000, dt.date(2026, 5, 4))["mode"] for _ in range(200)]
 		self.assertNotIn("UPI", big)
 		self.assertTrue(all(m in ("Wire Transfer", "Cheque") for m in big))
@@ -257,7 +257,7 @@ class TestMicro(UnitTestCase):
 		for pack_id in ("furniture_store", "electrical_distributor"):
 			pack = load_pack(pack_id)
 			for seed in range(1, 9):
-				ctx = PlanContext(pack, "micro", seed, "Tamil Nadu", dt.date(2026, 8, 9), dt.date(2026, 11, 8))
+				ctx = PlanContext(pack, "small", seed, "Tamil Nadu", dt.date(2026, 8, 9), dt.date(2026, 11, 8))
 				docs = make_plan(ctx)
 				where = f"{pack_id} seed {seed}"
 				self.assertLess(len(docs), 420, where)  # about 60 of them own-use supplies

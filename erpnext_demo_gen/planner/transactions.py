@@ -529,7 +529,7 @@ def refund_method(ctx, paid: dict, when: date) -> dict:
 
 def ensure_payment_modes(ctx, tl: Timeline):
 	"""Every planned payment mode is used at least once, so each shows up in the demo
-	even at micro size: when one is missing, the smallest suitable payment of a payer
+	even at small size: when one is missing, the smallest suitable payment of a payer
 	that uses it switches to it. Counter payments that are later refunded keep their
 	mode (the refund goes back the same way). Larger sizes are rarely touched.
 	"""

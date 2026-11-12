@@ -17,7 +17,7 @@ class TestPacks(UnitTestCase):
 		pack = load_pack("furniture_store")
 		self.assertEqual(pack["company"]["home_state"], "Tamil Nadu")  # from base
 		self.assertEqual(pack["company"]["warehouses"], ["Showroom", "Godown"])  # list replaced
-		self.assertEqual(pack["sizes"]["small"]["months"], 12)  # from base
+		self.assertEqual(pack["sizes"]["medium"]["months"], 12)  # from base
 		self.assertEqual(pack["behavior"]["seasonality"]["monthly_index"][8], 1.4)  # overridden
 		self.assertIn("payment_outcomes", pack["behavior"])  # sibling key kept
 

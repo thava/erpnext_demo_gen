@@ -1,14 +1,14 @@
 """bench --site <site> demo-gen ...
 
     demo-gen list-packs
-    demo-gen install --country IN|US|AE|DE [--pack furniture_store] [--size micro|small|medium] [--seed N] [--end-date YYYY-MM-DD]
+    demo-gen install --country IN|US|AE|DE [--pack furniture_store] [--size small|medium|large] [--seed N] [--end-date YYYY-MM-DD]
                       [--home-state TN] [--demo-company-name NAME] [--use-wizard-company]
                       [--no-gst | --fictitious-gstin] [--force]
     demo-gen status
     demo-gen history [--run DD-RUN-00001] [--limit 10]
     demo-gen verify [--run DD-RUN-00001]
     demo-gen uninstall [--run DD-RUN-00001] [--registry-only] [--no-backup]
-    demo-gen snapshot build --country IN|US|AE|DE [--pack furniture_store] [--size small] [--seed N]
+    demo-gen snapshot build --country IN|US|AE|DE [--pack furniture_store] [--size medium] [--seed N]
     demo-gen snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
 
 Thin wrappers over erpnext_demo_gen.service (M-13).
@@ -18,6 +18,7 @@ import click
 from frappe.commands import get_site, pass_context
 
 from erpnext_demo_gen.packs import SIZES
+
 
 COUNTRY_HELP = 'Country of the demo (required): IN, US, AE or DE, or the name, e.g. India, "United States", UAE, Germany (case, spaces and hyphens ignored)'
 PACK_HELP = "Pack name (see list-packs). Default: the country's default pack"
@@ -91,10 +92,10 @@ def list_packs():
 @click.option("--pack", help=PACK_HELP)
 @click.option(
 	"--size",
-	default="small",
+	default="medium",
 	show_default=True,
 	type=click.Choice(SIZES),
-	help="micro: about 250 documents, 1 min, for quick tests; small: about 1,000, 4 min; medium: about 18,000, 1.5 h",
+	help="small: 3 months, about 300 documents, 1 min; medium: 12 months, about 1,200, 5 min; large: 24 months, about 19,000, 1-2 h",
 )
 @click.option("--seed", default=1, show_default=True, type=int, help="Same seed, same data")
 @click.option("--end-date", help="Last day of generated data (default: today)")
@@ -408,7 +409,12 @@ def _snapshot_run(fn):
 @snapshot.command("build")
 @click.option("--country", required=True, help=COUNTRY_HELP)
 @click.option("--pack", help=PACK_HELP)
-@click.option("--size", default="small", show_default=True, type=click.Choice(SIZES))
+@click.option(
+	"--size",
+	default="medium",
+	show_default=True,
+	type=click.Choice(SIZES),
+)
 @click.option("--seed", default=1, show_default=True, type=int)
 @click.option("--end-date", help="Last day of generated data (default: today)")
 @click.option("--out", "out_dir", help="Folder for the snapshot (default: <bench>/demo-snapshots)")

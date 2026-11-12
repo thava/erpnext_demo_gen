@@ -19,7 +19,7 @@ def duration(seconds: float) -> str:
 
 
 def install_seconds(documents: int) -> float:
-	"""About 0.22 s per document on a small database, 0.31 s at Medium size."""
+	"""About 0.22 s per document on a small database, 0.31 s at large size."""
 	return documents * (0.22 if documents < 5000 else 0.31)
 
 

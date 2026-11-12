@@ -15,7 +15,7 @@ import yaml
 
 PACK_DIR = os.path.dirname(__file__)
 SCHEMA_VERSION = 1
-SIZES = ("micro", "small", "medium")
+SIZES = ("small", "medium", "large")
 SIZE_KEYS = ("months", "customers", "suppliers", "items", "sales_invoices", "purchase_invoices")
 FLOW_STEPS = ("quotation", "sales_order", "delivery_note", "sales_invoice", "payment_entry")
 PAYMENT_TERMS = ("immediate", "net_15", "net_30", "net_45", "net_60")

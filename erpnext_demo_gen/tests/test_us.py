@@ -30,7 +30,7 @@ class TestUSLocale(UnitTestCase):
 
 	def test_plan_is_texan(self):
 		pack = load_pack("furniture_store_us")
-		docs = make_plan(PlanContext(pack, "small", 3, "Texas", *date_range(dt.date(2026, 11, 8), 12), True))
+		docs = make_plan(PlanContext(pack, "medium", 3, "Texas", *date_range(dt.date(2026, 11, 8), 12), True))
 		customers = [d.params for d in docs if d.doctype == "Customer"]
 		self.assertTrue(all(c["address"]["state"] == "Texas" for c in customers))  # sells only in Texas
 		resellers = [c for c in customers if c.get("tax_category") == "Reseller"]

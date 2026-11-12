@@ -21,18 +21,18 @@ END = dt.date(2026, 11, 8)
 
 # name: (pack, size, seed, home_state, sales_tax)
 CASES = {
-	"furniture_store-micro-s1": ("furniture_store", "micro", 1, "Tamil Nadu", True),
-	"furniture_store-small-s2": ("furniture_store", "small", 2, "Tamil Nadu", True),
-	"furniture_store-small-s3-nogst": ("furniture_store", "small", 3, "Tamil Nadu", False),
-	"electrical_distributor-micro-s4-mh": ("electrical_distributor", "micro", 4, "Maharashtra", True),
-	"electrical_distributor-small-s5": ("electrical_distributor", "small", 5, "Karnataka", True),
-	"electrical_distributor-medium-s6": ("electrical_distributor", "medium", 6, "Tamil Nadu", True),
-	"furniture_store_us-micro-s7": ("furniture_store_us", "micro", 7, "Texas", True),
-	"furniture_store_us-small-s8": ("furniture_store_us", "small", 8, "Texas", True),
-	"furniture_store_ae-micro-s9": ("furniture_store_ae", "micro", 9, "Dubai", True),
-	"furniture_store_ae-small-s10": ("furniture_store_ae", "small", 10, "Dubai", True),
-	"furniture_store_de-micro-s11": ("furniture_store_de", "micro", 11, "Bayern", True),
-	"furniture_store_de-small-s12": ("furniture_store_de", "small", 12, "Bayern", True),
+	"furniture_store-small-s1": ("furniture_store", "small", 1, "Tamil Nadu", True),
+	"furniture_store-medium-s2": ("furniture_store", "medium", 2, "Tamil Nadu", True),
+	"furniture_store-medium-s3-nogst": ("furniture_store", "medium", 3, "Tamil Nadu", False),
+	"electrical_distributor-small-s4-mh": ("electrical_distributor", "small", 4, "Maharashtra", True),
+	"electrical_distributor-medium-s5": ("electrical_distributor", "medium", 5, "Karnataka", True),
+	"electrical_distributor-large-s6": ("electrical_distributor", "large", 6, "Tamil Nadu", True),
+	"furniture_store_us-small-s7": ("furniture_store_us", "small", 7, "Texas", True),
+	"furniture_store_us-medium-s8": ("furniture_store_us", "medium", 8, "Texas", True),
+	"furniture_store_ae-small-s9": ("furniture_store_ae", "small", 9, "Dubai", True),
+	"furniture_store_ae-medium-s10": ("furniture_store_ae", "medium", 10, "Dubai", True),
+	"furniture_store_de-small-s11": ("furniture_store_de", "small", 11, "Bayern", True),
+	"furniture_store_de-medium-s12": ("furniture_store_de", "medium", 12, "Bayern", True),
 }
 
 

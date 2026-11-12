@@ -1,6 +1,6 @@
 name: Snapshots release
 
-# Publishes ready-made snapshots: Small and Medium for every country and pack, one job
+# Publishes ready-made snapshots: medium and large for every country and pack, one job
 # each. Each snapshot is restored on a new site and verified; a set is published only
 # when all ten pass. App versions (tags vX.Y.Z) are released separately and carry no
 # snapshots.
@@ -82,7 +82,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        size: [small, medium]
+        size: [medium, large]
         target:
           - {country: IN, pack: furniture_store}
           - {country: IN, pack: electrical_distributor}
@@ -180,15 +180,15 @@ jobs:
               print("restoring migrates it forward. For an earlier version-16 minor release of Frappe or")
               print("ERPNext, use an older `snapshots-YYYY-MM` set.\n")
           print("## Snapshots\n")
-          for m in sorted(rows, key=lambda m: (order.index(m["country"]), m["pack_name"], m["size"] != "small")):
+          for m in sorted(rows, key=lambda m: (order.index(m["country"]), m["pack_name"], m["size"] != "medium")):
               docs = sum(m["documents"].values())
               print(f"- **{names[m['country']]}, {m['pack_name']}, {m['size']}**: "
                     f"{m['company']}, {docs:,} documents, data {m['data_from']} to {m['data_to']}  ")
               print(f"  `{m['dump']}`")
           print("\n## Restore\n")
           print("```bash")
-          print(f"gh release download {tag} -R {repo} -p '*furniture_store-IN-medium*'")
-          print("bench demo-gen snapshot new-site mydemo.localhost demo-furniture_store-IN-medium-*.sql.gz")
+          print(f"gh release download {tag} -R {repo} -p '*furniture_store-IN-large*'")
+          print("bench demo-gen snapshot new-site mydemo.localhost demo-furniture_store-IN-large-*.sql.gz")
           print("```\n")
           print("- India snapshots need india_compliance on the bench.")
           print("- The Administrator password is `changeme` unless you pass `--admin-password`.")

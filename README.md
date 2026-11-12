@@ -44,14 +44,14 @@ A quick reference. The [tutorial](#tutorial) below explains each option with exa
 
 ```bash
 bench --site <site> demo-gen list-packs
-bench --site <site> demo-gen install --country IN|US|AE|DE [--pack NAME] [--size micro|small|medium]
+bench --site <site> demo-gen install --country IN|US|AE|DE [--pack NAME] [--size small|medium|large]
       [--seed N] [--end-date YYYY-MM-DD] [--home-state STATE] [--demo-company-name NAME]
       [--use-wizard-company] [--no-gst | --fictitious-gstin] [--force] [--verbose]
 bench --site <site> demo-gen status
 bench --site <site> demo-gen history [--run DD-RUN-00001] [--limit 20]
 bench --site <site> demo-gen verify [--run DD-RUN-00001]
 bench --site <site> demo-gen uninstall [--run DD-RUN-00001] [--yes] [--registry-only] [--no-backup]
-bench demo-gen snapshot build --country IN|US|AE|DE [--pack NAME] [--size small] [--seed N]
+bench demo-gen snapshot build --country IN|US|AE|DE [--pack NAME] [--size medium] [--seed N]
 bench demo-gen snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
 ```
 
@@ -83,7 +83,7 @@ Check it with: demo-gen verify. Remove it with: demo-gen uninstall.
 - `--country` is the only required option.
 - Each install is a *run* with its own number (`DD-RUN-00009`).
 - The run creates a new company. Its name is made up (here "Indigo Brass Home Studio Pvt Ltd").
-- The size is `small` by default: 12 months of data, about 1,200 documents.
+- The size is `medium` by default: 12 months of data, about 1,200 documents.
 
 Check the result:
 
@@ -129,7 +129,7 @@ bench --site demo.localhost demo-gen status
 ```
 
 ```
-DD-RUN-00009  Completed: furniture_store (IN)/small seed 1, data up to 2026-11-11, company Indigo Brass Home Studio Pvt Ltd
+DD-RUN-00009  Completed: furniture_store (IN)/medium seed 1, data up to 2026-11-11, company Indigo Brass Home Studio Pvt Ltd
     1210 documents; since 2026-11-11 04:40
 Runs on this site: 9 (1 completed, 8 uninstalled). Details: demo-gen history
 ```
@@ -140,7 +140,7 @@ bench --site demo.localhost demo-gen history --limit 4
 
 ```
 2026-11-11 04:40  DD-RUN-00009  installed after 5 min (Created 187, Submitted 1023)
-2026-11-11 04:36  DD-RUN-00009  install started: furniture_store (IN)/small seed 1, ...
+2026-11-11 04:36  DD-RUN-00009  install started: furniture_store (IN)/medium seed 1, ...
 2026-11-10 04:25  DD-RUN-00008  uninstalled after 17 s (Deleted 286)
 2026-11-10 04:24  DD-RUN-00008  uninstall started
 ... 30 older events (--limit)
@@ -174,8 +174,8 @@ bench --site demo.localhost demo-gen list-packs
 
 ```
 Pack                     Countries       Sizes                  Title
-electrical_distributor   IN              micro, small, medium   Electrical Equipment Distributor
-furniture_store          AE, DE, IN, US  micro, small, medium   Furniture Store; ...
+electrical_distributor   IN              small, medium, large   Electrical Equipment Distributor
+furniture_store          AE, DE, IN, US  small, medium, large   Furniture Store; ...
 Default pack per country: AE furniture_store, DE furniture_store, IN furniture_store, US furniture_store
 ```
 
@@ -190,15 +190,15 @@ bench --site demo.localhost demo-gen install --country IN      # furniture_store
 ### Choose the size
 
 ```bash
-bench --site demo.localhost demo-gen install --country US --size micro    # 3 months, about 300 documents, 1 minute
-bench --site demo.localhost demo-gen install --country US                 # small: 12 months, about 1,200 documents, 5 minutes
-bench --site demo.localhost demo-gen install --country US --size medium   # 24 months, about 19,000 documents, 1 to 2 hours
+bench --site demo.localhost demo-gen install --country US --size small    # 3 months, about 300 documents, 1 minute
+bench --site demo.localhost demo-gen install --country US                 # medium: 12 months, about 1,200 documents, 5 minutes
+bench --site demo.localhost demo-gen install --country US --size large   # 24 months, about 19,000 documents, 1 to 2 hours
 ```
 
-- `micro` is for quick tests and bug reports. It still has every kind of document
+- `small` is for quick tests and bug reports. It still has every kind of document
   the demo makes, but few customers and items.
-- `small` is the default and suits most demos.
-- `medium` looks like a real business, but takes an hour or more.
+- `medium` is the default and suits most demos.
+- `large` looks like a real business, but takes an hour or more.
   [Download a ready-made snapshot](#download-a-ready-made-snapshot) instead, and restore it in seconds.
 - Times for every pack are under [Sizes](#sizes).
 
@@ -280,9 +280,9 @@ bench --site demo.localhost demo-gen install --country IN --force
 ### Stop and resume
 
 ```bash
-bench --site demo.localhost demo-gen install --country US --size medium
+bench --site demo.localhost demo-gen install --country US --size large
 # ... press Ctrl+C, or the machine restarts ...
-bench --site demo.localhost demo-gen install --country US --size medium
+bench --site demo.localhost demo-gen install --country US --size large
 # The same command resumes where it stopped.
 ```
 
@@ -664,25 +664,25 @@ Measured on a laptop (MariaDB in Docker). ERPNext takes about 0.3 to 0.4 s to su
 each document, so time grows with the number of documents.
 
 ```
-furniture_store (IN)       micro   ~290 docs, 1.2 min    small  ~1,200 docs, 5 min    medium  ~18,500 docs, 1.5 h
-electrical_distributor     micro   ~320 docs, 1.4 min    small  ~1,500 docs, 6 min    medium  ~23,300 docs, 2 to 2.5 h
-furniture_store (US)       micro   ~300 docs, 1 min      small  ~1,200 docs, 5 min    medium  ~19,000 docs, 1.7 h
-furniture_store (AE)       micro   ~300 docs, 1 min      small  ~1,200 docs, 5 min    medium  ~18,900 docs, 1 h (CI)
-furniture_store (DE)       micro   ~310 docs, 1 min      small  ~1,200 docs, 4 min    medium  ~19,400 docs, 1 h (CI)
+furniture_store (IN)       small   ~290 docs, 1.2 min    medium  ~1,200 docs, 5 min   large   ~18,500 docs, 1.5 h
+electrical_distributor     small   ~320 docs, 1.4 min    medium  ~1,500 docs, 6 min   large   ~23,300 docs, 2 to 2.5 h
+furniture_store (US)       small   ~300 docs, 1 min      medium  ~1,200 docs, 5 min   large   ~19,000 docs, 1.7 h
+furniture_store (AE)       small   ~300 docs, 1 min      medium  ~1,200 docs, 5 min   large   ~18,900 docs, 1 h (CI)
+furniture_store (DE)       small   ~310 docs, 1 min      medium  ~1,200 docs, 4 min   large   ~19,400 docs, 1 h (CI)
 ```
 
-- micro: 3 months; small: 12 months; medium: 24 months.
+- small: 3 months; medium: 12 months; large: 24 months.
 - Every size covers every kind of document: quotations won and lost, orders, deliveries,
   invoices paid, overdue, returned, cancelled and left in draft, purchases, every payment
   mode, weekly bank transfers and bank reconciliation.
-- The planner checks this for every size. It adjusts a few documents when a small run
+- The planner checks this for every size. It adjusts a few documents when a short run
   would miss something.
 
 ## Reading the reports
 
 - **Stock Balance shows fewer rows than the pack has items.** The report leaves out
   items with no stock. A demo ends with one or two fast sellers sold out, as in real
-  shops. So a Medium run with 250 stock items usually shows 248 or 249 rows.
+  shops. So a Large run with 250 stock items usually shows 248 or 249 rows.
   Tick "Include Zero Stock Items" to see them all.
 
 ## Snapshots
@@ -696,14 +696,14 @@ A snapshot is a ready-made demo site: a database dump plus a manifest.
 ### Download a ready-made snapshot
 
 Ready-made snapshots are published every month as releases named `snapshots-YYYY-MM`.
-The last three months are kept. Each set has Small and Medium snapshots for every
+The last three months are kept. Each set has Medium and Large snapshots for every
 country and pack, built and verified in CI:
 
 ```
-India            furniture_store, electrical_distributor     small, medium
-United States    furniture_store                              small, medium
-UAE              furniture_store                              small, medium
-Germany          furniture_store                              small, medium
+India            furniture_store, electrical_distributor     medium, large
+United States    furniture_store                              medium, large
+UAE              furniture_store                              medium, large
+Germany          furniture_store                              medium, large
 ```
 
 See which sets exist, then download one and make a site from it:
@@ -712,26 +712,26 @@ See which sets exist, then download one and make a site from it:
 gh release list -R thava/erpnext_demo_gen     # the snapshots-YYYY-MM releases
 
 # India
-gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-IN-medium*'
+gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-IN-large*'
 # Downloads the dump (.sql.gz) and its manifest (.json).
-bench demo-gen snapshot new-site mumbai.localhost demo-furniture_store-IN-medium-*.sql.gz
+bench demo-gen snapshot new-site mumbai.localhost demo-furniture_store-IN-large-*.sql.gz
 # Creates mumbai.localhost with two years of data, in about 15 seconds.
 
 # United States
-gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-US-medium*'
-bench demo-gen snapshot new-site austin.localhost demo-furniture_store-US-medium-*.sql.gz
+gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-US-large*'
+bench demo-gen snapshot new-site austin.localhost demo-furniture_store-US-large-*.sql.gz
 
 # UAE
-gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-AE-medium*'
-bench demo-gen snapshot new-site dubai.localhost demo-furniture_store-AE-medium-*.sql.gz
+gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-AE-large*'
+bench demo-gen snapshot new-site dubai.localhost demo-furniture_store-AE-large-*.sql.gz
 
 # Germany
-gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-DE-medium*'
-bench demo-gen snapshot new-site munich.localhost demo-furniture_store-DE-medium-*.sql.gz
+gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-DE-large*'
+bench demo-gen snapshot new-site munich.localhost demo-furniture_store-DE-large-*.sql.gz
 ```
 
-- File names follow `demo-<pack>-<country>-<size>-...`, so `'*-AE-small*'` picks
-  the UAE's Small snapshot. Without `gh`, download from the release page in a browser.
+- File names follow `demo-<pack>-<country>-<size>-...`, so `'*-AE-medium*'` picks
+  the UAE's Medium snapshot. Without `gh`, download from the release page in a browser.
 - India snapshots need india_compliance on the bench.
 - The data ends on the day the set was built.
 
@@ -742,7 +742,7 @@ forward. So if your bench runs an earlier version-16 minor release of Frappe or
 ERPNext than the newest set, pick an older set built on that release or before it.
 `new-site` checks this and says when a set is too new.
 
-Micro and Small demos also install directly in a few minutes, and a snapshot you
+Small and Medium demos also install directly in a few minutes, and a snapshot you
 build yourself (below) can be reused as often as you like.
 
 **develop.** For the next major version, the pre-release
@@ -758,14 +758,14 @@ Build a snapshot when you want another seed, an end date of your own, or a
 snapshot that matches your bench exactly:
 
 ```bash
-bench demo-gen snapshot build --country US --size medium
+bench demo-gen snapshot build --country US --size large
 # Creates a throwaway site, runs the setup wizard, installs, verifies, backs up, drops the site.
 # Asks for the MariaDB root password (or pass --db-root-password).
 # Add --mariadb-user-host-login-scope '%' when MariaDB runs in Docker.
 ```
 
 ```
-Snapshot ready: demo-snapshots/demo-furniture_store-US-medium-s1-f16.56.0-e16.54.0-dd0.1.0-20261111.sql.gz (and its .json manifest)
+Snapshot ready: demo-snapshots/demo-furniture_store-US-large-s1-f16.56.0-e16.54.0-dd0.1.0-20261111.sql.gz (and its .json manifest)
 ```
 
 - The file name holds the pack, country, size, seed, app versions and build date.
@@ -778,7 +778,7 @@ Make a new site from it:
 
 ```bash
 bench demo-gen snapshot new-site austin.localhost \
-      demo-snapshots/demo-furniture_store-US-medium-s1-f16.56.0-e16.54.0-dd0.1.0-20261111.sql.gz \
+      demo-snapshots/demo-furniture_store-US-large-s1-f16.56.0-e16.54.0-dd0.1.0-20261111.sql.gz \
       --admin-password secret
 # Checks the checksum and versions, then creates austin.localhost from the dump.
 # Prints the build date and the data period. The data ends on the build date.
@@ -809,8 +809,8 @@ bench --site demo-data.localhost run-tests --app erpnext_demo_gen
 
 bench --site demo-data.localhost execute erpnext_demo_gen.tests.smoke.run \
       --kwargs '{"country": "IN", "pack": "furniture_store", "seed": 11}'
-# micro install, verify, uninstall, then compare document counts
-# add "size": "small" (or "medium") to test a larger size
+# small install, verify, uninstall, then compare document counts
+# add "size": "medium" (or "large") to test a larger size
 ```
 
 ## Contributing
