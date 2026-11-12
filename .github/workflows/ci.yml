@@ -4,11 +4,18 @@ name: CI
 # verify, uninstall, compare table counts), India, US, UAE and Germany, on Frappe,
 # ERPNext and india_compliance version-16 and again on develop (the next major
 # version). develop failures are reported but do not fail the run: they warn early
-# about changes coming in the next major version. Nightly: Small snapshots for
-# every pack too. Weekly or on request: one Medium snapshot, electrical_distributor in even ISO
-# weeks and furniture_store in odd ones. Every snapshot a run builds is restored on
-# a new site and verified, then kept as a build artifact. A failure means ERPNext,
-# india_compliance or this app has drifted (requirement M-13).
+# about changes coming in the next major version.
+#
+# Snapshots (one job each; every snapshot is restored on a new site and verified,
+# then kept as a build artifact for 14 days):
+#   nightly          Small, every country and pack, on version-16 and develop.
+#                    A branch's jobs are skipped when neither upstream (frappe,
+#                    erpnext, india_compliance) nor this app changed since the last
+#                    successful nightly build of the same snapshot.
+#   weekly           Medium, every country and pack, on version-16. (develop's
+#                    Medium snapshots are built weekly by release.yml.)
+#   workflow_dispatch  any size, branch and country, never skipped.
+# A failure means ERPNext, india_compliance or this app has drifted (requirement M-13).
 
 on:
   push:
@@ -16,7 +23,7 @@ on:
   pull_request:
   schedule:
     - cron: "30 20 * * *" # nightly, 02:00 IST: tests and Small snapshots
-    - cron: "30 21 * * 6" # weekly, Sunday 03:00 IST: one Medium snapshot as well
+    - cron: "30 21 * * 6" # weekly, Sunday 03:00 IST: Medium snapshots on version-16
   workflow_dispatch:
     inputs:
       snapshots:
@@ -24,20 +31,21 @@ on:
         type: choice
         default: none
         options: [none, small, small+medium, medium]
-      medium_country:
-        description: Country of the Medium snapshot
+      branch:
+        description: Frappe/ERPNext branch for the snapshots
         type: choice
-        default: IN
-        options: [IN, US, AE, DE]
-      medium_pack:
-        description: Pack for the Medium snapshot (this-week alternates India's packs by ISO week)
+        default: version-16
+        options: [version-16, develop, both]
+      country:
+        description: Country of the snapshots (all its packs)
         type: choice
-        default: this-week
-        options: [this-week, furniture_store, electrical_distributor]
+        default: all
+        options: [all, IN, US, AE, DE]
 
 concurrency:
   group: ci-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  # pushes replace older pushes; scheduled and manual runs queue instead
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -92,12 +100,54 @@ jobs:
         working-directory: ${{ env.BENCH }}
         run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" DE furniture_store micro 1 ci-de.localhost
 
-  snapshots:
-    name: Snapshots
-    needs: tests
+  plan:
+    name: Plan snapshots
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.snapshots != 'none')
     runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          SIZES: ${{ inputs.snapshots }}
+          BRANCH: ${{ inputs.branch }}
+          COUNTRY: ${{ inputs.country }}
+        run: |
+          python3 - >> "$GITHUB_OUTPUT" <<'EOF'
+          import json, os
+          targets = [("IN", "furniture_store"), ("IN", "electrical_distributor"),
+                     ("US", "furniture_store"), ("AE", "furniture_store"), ("DE", "furniture_store")]
+          if os.environ["EVENT"] == "schedule":
+              weekly = os.environ["SCHEDULE"] == "30 21 * * 6"
+              sizes = ["medium"] if weekly else ["small"]
+              branches = ["version-16"] if weekly else ["version-16", "develop"]
+              country, skip_unchanged = "all", not weekly
+          else:
+              sizes = os.environ["SIZES"].split("+")
+              branch = os.environ["BRANCH"]
+              branches = ["version-16", "develop"] if branch == "both" else [branch]
+              country, skip_unchanged = os.environ["COUNTRY"], False
+          jobs = [
+              {"branch": b, "country": c, "pack": p, "size": z, "skip_unchanged": skip_unchanged}
+              for b in branches for z in sizes for c, p in targets if country in ("all", c)
+          ]
+          print("matrix=" + json.dumps({"include": jobs}))
+          EOF
+
+  snapshots:
+    name: Snapshot ${{ matrix.branch }} ${{ matrix.country }} ${{ matrix.pack }} ${{ matrix.size }}
+    needs: [tests, plan]
+    runs-on: ubuntu-24.04
     timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    continue-on-error: ${{ matrix.branch == 'develop' }}
+    env:
+      FRAPPE_BRANCH: ${{ matrix.branch }}
+      SKIP_SITES: "1"
     services:
       mariadb:
         image: mariadb:11.8
@@ -111,51 +161,55 @@ jobs:
         image: redis:7-alpine
         ports: ["6379:6379"]
     steps:
-      - uses: actions/checkout@v5
-      - uses: ./.github/actions/setup-bench
-      - name: Small snapshots
-        if: inputs.snapshots != 'medium'
-        working-directory: ${{ env.BENCH }}
+      - name: Upstream commits
+        id: upstream
         run: |
-          for spec in "IN furniture_store" "IN electrical_distributor" "US furniture_store" "AE furniture_store" "DE furniture_store"; do
-            set -- $spec
-            bench demo-gen snapshot build --country "$1" --pack "$2" --size small \
-              --db-root-password "$DB_ROOT_PASSWORD" --mariadb-user-host-login-scope '%'
-          done
-      - name: Medium snapshot
-        if: github.event.schedule == '30 21 * * 6' || inputs.snapshots == 'small+medium' || inputs.snapshots == 'medium'
-        working-directory: ${{ env.BENCH }}
-        env:
-          MEDIUM_PACK: ${{ inputs.medium_pack || 'this-week' }}
-          MEDIUM_COUNTRY: ${{ inputs.medium_country || 'IN' }}
-        run: |
-          pack="$MEDIUM_PACK"
-          if [ "$pack" = this-week ]; then
-            # alternate by ISO week: even -> electrical_distributor, odd -> furniture_store
-            week=$(date -u +%V)
-            if [ $((10#$week % 2)) -eq 0 ]; then pack=electrical_distributor; else pack=furniture_store; fi
-          fi
-          echo "Medium snapshot for $pack ($MEDIUM_COUNTRY, ISO week $(date -u +%V))"
-          bench demo-gen snapshot build --country "$MEDIUM_COUNTRY" --pack "$pack" --size medium \
-            --db-root-password "$DB_ROOT_PASSWORD" --mariadb-user-host-login-scope '%'
-      - name: Restore check
-        working-directory: ${{ env.BENCH }}
-        run: |
-          # restore every snapshot built above on a new site (snapshot new-site runs verify)
-          n=0
-          for dump in demo-snapshots/*.sql.gz; do
-            n=$((n + 1))
-            site="restore-check-$n.localhost"
-            echo "::group::$dump"
-            bench demo-gen snapshot new-site "$site" "$PWD/$dump" \
-              --admin-password restore-check --db-root-password "$DB_ROOT_PASSWORD" \
-              --mariadb-user-host-login-scope '%'
-            bench purge-jobs --site "$site" || true   # no worker in CI (F-30)
-            bench drop-site "$site" --db-root-password "$DB_ROOT_PASSWORD" --no-backup --force
-            echo "::endgroup::"
-          done
-      - uses: actions/upload-artifact@v6
+          head() { git ls-remote "https://github.com/$1" "refs/heads/$FRAPPE_BRANCH" | cut -c1-12; }
+          key="$(head frappe/frappe)-$(head frappe/erpnext)-$(head resilient-tech/india-compliance)-${GITHUB_SHA::12}"
+          echo "key=nightly-${{ matrix.branch }}-${{ matrix.country }}-${{ matrix.pack }}-${{ matrix.size }}-$key" >> "$GITHUB_OUTPUT"
+          echo "frappe, erpnext, india_compliance and this app at: $key"
+      - name: Built already?
+        id: seen
+        if: matrix.skip_unchanged
+        uses: actions/cache/restore@v4
         with:
-          name: demo-snapshots-${{ github.run_number }}
+          path: built.txt
+          key: ${{ steps.upstream.outputs.key }}
+          lookup-only: true
+      - name: Skip (nothing changed since the last nightly build)
+        if: steps.seen.outputs.cache-hit == 'true'
+        run: |
+          echo "::notice::${{ matrix.branch }} ${{ matrix.country }} ${{ matrix.pack }} ${{ matrix.size }} unchanged since the last nightly build; skipped"
+      - uses: actions/checkout@v5
+        if: steps.seen.outputs.cache-hit != 'true'
+      - uses: ./.github/actions/setup-bench
+        if: steps.seen.outputs.cache-hit != 'true'
+      - name: Build the snapshot
+        if: steps.seen.outputs.cache-hit != 'true'
+        working-directory: ${{ env.BENCH }}
+        run: |
+          bench demo-gen snapshot build --country "${{ matrix.country }}" --pack "${{ matrix.pack }}" \
+            --size "${{ matrix.size }}" --db-root-password "$DB_ROOT_PASSWORD" --mariadb-user-host-login-scope '%'
+      - name: Restore check
+        if: steps.seen.outputs.cache-hit != 'true'
+        working-directory: ${{ env.BENCH }}
+        run: |
+          # snapshot new-site checks the checksum and versions, restores and runs verify
+          dump=$(ls demo-snapshots/*.sql.gz)
+          bench demo-gen snapshot new-site restore-check.localhost "$PWD/$dump" \
+            --admin-password restore-check --db-root-password "$DB_ROOT_PASSWORD" \
+            --mariadb-user-host-login-scope '%'
+      - uses: actions/upload-artifact@v6
+        if: steps.seen.outputs.cache-hit != 'true'
+        with:
+          name: snapshot-${{ github.run_number }}-${{ matrix.branch }}-${{ matrix.country }}-${{ matrix.pack }}-${{ matrix.size }}
           path: ${{ env.BENCH }}/demo-snapshots/
           retention-days: 14
+      - name: Remember this build
+        if: matrix.skip_unchanged && steps.seen.outputs.cache-hit != 'true'
+        run: date -u > built.txt
+      - uses: actions/cache/save@v4
+        if: matrix.skip_unchanged && steps.seen.outputs.cache-hit != 'true'
+        with:
+          path: built.txt
+          key: ${{ steps.upstream.outputs.key }}
