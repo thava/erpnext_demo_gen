@@ -374,9 +374,16 @@ def check(dump_path: str) -> tuple[dict, list[str]]:
 		elif action == "migrate":
 			migrations.append(reason)
 	if refusals:
+		older = any("newer" in r for r in refusals)
+		hint = (
+			"\nUse an older snapshot set built on these versions or earlier"
+			" (https://github.com/thava/erpnext_demo_gen/releases), or build one here:"
+			if older
+			else "\nBuild one here instead:"
+		)
 		raise SnapshotError(
 			"This snapshot does not fit this bench:\n  " + "\n  ".join(refusals)
-			+ "\nBuild one here instead: bench demo-gen snapshot build --pack ... --size ..."
+			+ hint + " bench demo-gen snapshot build --country ... --size ..."
 		)
 	return manifest, migrations
 
