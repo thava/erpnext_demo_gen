@@ -708,15 +708,27 @@ Germany          furniture_store                              small, medium
 Download one and make a site from it:
 
 ```bash
+# India
 gh release download v0.1.0 -R thava/erpnext_demo_gen -p '*furniture_store-IN-medium*'
 # Downloads the dump (.sql.gz) and its manifest (.json).
-
 bench demo-gen snapshot new-site mumbai.localhost demo-furniture_store-IN-medium-*.sql.gz
 # Creates mumbai.localhost with two years of data, in about 15 seconds.
+
+# United States
+gh release download v0.1.0 -R thava/erpnext_demo_gen -p '*furniture_store-US-medium*'
+bench demo-gen snapshot new-site austin.localhost demo-furniture_store-US-medium-*.sql.gz
+
+# UAE
+gh release download v0.1.0 -R thava/erpnext_demo_gen -p '*furniture_store-AE-medium*'
+bench demo-gen snapshot new-site dubai.localhost demo-furniture_store-AE-medium-*.sql.gz
+
+# Germany
+gh release download v0.1.0 -R thava/erpnext_demo_gen -p '*furniture_store-DE-medium*'
+bench demo-gen snapshot new-site munich.localhost demo-furniture_store-DE-medium-*.sql.gz
 ```
 
-- File names follow `demo-<pack>-<country>-<size>-...`, so `'*-DE-small*'` picks
-  Germany's Small snapshot. Without `gh`, download from the release page in a browser.
+- File names follow `demo-<pack>-<country>-<size>-...`, so `'*-AE-small*'` picks
+  the UAE's Small snapshot. Without `gh`, download from the release page in a browser.
 - The bench needs the same major version (v16), at the release the snapshot was built on
   or newer. A newer bench migrates the site after restore. The release notes list the versions.
 - India snapshots need india_compliance on the bench.
@@ -728,8 +740,8 @@ has the same ten snapshots built on Frappe and ERPNext `develop` (the next major
 It is rebuilt every week, and its files are replaced each time.
 
 ```bash
-gh release download develop-snapshots -R thava/erpnext_demo_gen -p '*furniture_store-DE-small*'
-bench demo-gen snapshot new-site dev-demo.localhost demo-furniture_store-DE-small-*.sql.gz
+gh release download develop-snapshots -R thava/erpnext_demo_gen -p '*furniture_store-AE-small*'
+bench demo-gen snapshot new-site dev-demo.localhost demo-furniture_store-AE-small-*.sql.gz
 # on a develop bench: needs the commits in the release notes or newer (bench update first)
 ```
 
@@ -743,14 +755,14 @@ Build a snapshot when you want another seed, an end date of your own, or a
 snapshot that matches your bench exactly:
 
 ```bash
-bench demo-gen snapshot build --country DE --size medium
+bench demo-gen snapshot build --country US --size medium
 # Creates a throwaway site, runs the setup wizard, installs, verifies, backs up, drops the site.
 # Asks for the MariaDB root password (or pass --db-root-password).
 # Add --mariadb-user-host-login-scope '%' when MariaDB runs in Docker.
 ```
 
 ```
-Snapshot ready: demo-snapshots/demo-furniture_store-DE-medium-s1-f16.56.0-e16.54.0-dd0.0.1-20261110.sql.gz (and its .json manifest)
+Snapshot ready: demo-snapshots/demo-furniture_store-US-medium-s1-f16.56.0-e16.54.0-dd0.1.0-20261111.sql.gz (and its .json manifest)
 ```
 
 - The file name holds the pack, country, size, seed, app versions and build date.
@@ -762,10 +774,10 @@ Snapshot ready: demo-snapshots/demo-furniture_store-DE-medium-s1-f16.56.0-e16.54
 Make a new site from it:
 
 ```bash
-bench demo-gen snapshot new-site berlin.localhost \
-      demo-snapshots/demo-furniture_store-DE-medium-s1-f16.56.0-e16.54.0-dd0.0.1-20261110.sql.gz \
+bench demo-gen snapshot new-site austin.localhost \
+      demo-snapshots/demo-furniture_store-US-medium-s1-f16.56.0-e16.54.0-dd0.1.0-20261111.sql.gz \
       --admin-password secret
-# Checks the checksum and versions, then creates berlin.localhost from the dump.
+# Checks the checksum and versions, then creates austin.localhost from the dump.
 # Prints the build date and the data period. The data ends on the build date.
 ```
 
@@ -779,9 +791,9 @@ bench demo-gen snapshot new-site berlin.localhost \
 The dump is a standard Frappe backup, so Frappe's own commands also work:
 
 ```bash
-bench new-site berlin.localhost --source-sql /absolute/path/to/dump.sql.gz    # the path must be absolute
-bench --site berlin.localhost restore dump.sql.gz
-bench --site berlin.localhost set-admin-password secret
+bench new-site austin.localhost --source-sql /absolute/path/to/dump.sql.gz    # the path must be absolute
+bench --site austin.localhost restore dump.sql.gz
+bench --site austin.localhost set-admin-password secret
 # Frappe keeps the snapshot's password "changeme" on restore, even with --admin-password,
 # so set it afterwards.
 ```
