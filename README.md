@@ -722,6 +722,21 @@ bench demo-gen snapshot new-site mumbai.localhost demo-furniture_store-IN-medium
 - India snapshots need india_compliance on the bench.
 - The data ends on the day the release was built.
 
+**Snapshots for develop.** The pre-release
+[develop-snapshots](https://github.com/thava/erpnext_demo_gen/releases/tag/develop-snapshots)
+has the same ten snapshots built on Frappe and ERPNext `develop` (the next major version).
+It is rebuilt every week, and its files are replaced each time.
+
+```bash
+gh release download develop-snapshots -R thava/erpnext_demo_gen -p '*furniture_store-DE-small*'
+bench demo-gen snapshot new-site dev-demo.localhost demo-furniture_store-DE-small-*.sql.gz
+# on a develop bench: needs the commits in the release notes or newer (bench update first)
+```
+
+- develop keeps one version number (such as `17.0.0-dev`) while its code changes daily,
+  so `new-site` compares commit dates instead. A snapshot from an older commit is
+  restored and migrated; one from a newer commit is refused until you update the bench.
+
 ### Build your own
 
 Build a snapshot when you want another seed, an end date of your own, or a
