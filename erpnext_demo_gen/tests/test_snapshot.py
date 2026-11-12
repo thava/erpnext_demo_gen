@@ -21,6 +21,19 @@ class TestVersionPolicy(UnitTestCase):
 		self.assertEqual(act("15.40.0", "16.53.0"), "refuse")  # older major
 		self.assertEqual(act("17.0.0", "16.53.0"), "refuse")  # newer major
 
+	def test_development_versions_compare_commits(self):
+		def act(snap, ours, s="17.0.0-dev", b="17.0.0-dev"):
+			return snapshot.version_action("erpnext", s, b, snap, ours)[0]
+
+		old = {"commit": "aaa1111", "date": "2026-11-01T10:00:00+00:00"}
+		new = {"commit": "bbb2222", "date": "2026-11-10T10:00:00+00:00"}
+		self.assertEqual(act(old, {"commit": "aaa1111-dirty", "date": old["date"]}), "same")
+		self.assertEqual(act(old, new), "migrate")  # snapshot from an older develop commit
+		self.assertEqual(act(new, old), "refuse")  # newer: update the bench first
+		self.assertEqual(act({"commit": "ccc"}, new), "migrate")  # date unknown: migrate to be safe
+		self.assertEqual(act(old, new, s="16.53.0"), "refuse")  # v16 snapshot on a develop bench
+		self.assertEqual(act(old, new, b="16.53.0"), "refuse")  # develop snapshot on a v16 bench
+
 
 class TestBuildHelpers(UnitTestCase):
 	def test_company_matches_a_live_install(self):

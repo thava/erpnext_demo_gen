@@ -45,14 +45,31 @@ def parse_version(text: str) -> tuple[int, int, int]:
 	return major, minor, patch
 
 
-def version_action(app: str, snapshot: str, bench: str) -> tuple[str, str]:
+def is_dev(version: str) -> bool:
+	"""A development branch version such as "17.0.0-dev" (develop): it stays the same for
+	weeks while the schema changes, so commits, not version numbers, tell builds apart."""
+	return "dev" in (version or "")
+
+
+def version_action(
+	app: str,
+	snapshot: str,
+	bench: str,
+	snapshot_commit: dict | None = None,
+	bench_commit: dict | None = None,
+) -> tuple[str, str]:
 	"""What restoring needs for one app: ("same" | "migrate" | "refuse", reason).
 
 	Same major and not newer than the bench: restore (and migrate when older).
 	Newer at any level is a downgrade; a different major would not be the data
 	this bench's generator makes. Either way, build a snapshot on this bench.
+
+	Development versions (develop) compare commits instead, as {"commit", "date"}:
+	the same commit is "same", an older or unknown one is migrated, a newer one refused.
 	"""
 	s, b = parse_version(snapshot), parse_version(bench)
+	if s[0] == b[0] and (is_dev(snapshot) or is_dev(bench)):
+		return dev_action(app, snapshot_commit or {}, bench_commit or {})
 	if s == b:
 		return "same", ""
 	if s[0] != b[0]:
@@ -60,6 +77,30 @@ def version_action(app: str, snapshot: str, bench: str) -> tuple[str, str]:
 	if s > b:
 		return "refuse", f"{app} {snapshot} in the snapshot is newer than {bench} on this bench"
 	return "migrate", f"{app} {snapshot} -> {bench}"
+
+
+def dev_action(app: str, snap: dict, ours: dict) -> tuple[str, str]:
+	"""Version policy for development branches, by commit and commit date."""
+	strip = lambda c: (c or "").removesuffix("-dirty")  # noqa: E731
+	if strip(snap.get("commit")) and strip(snap.get("commit")) == strip(ours.get("commit")):
+		return "same", ""
+	snap_date, our_date = snap.get("date"), ours.get("date")
+	if snap_date and our_date and snap_date > our_date:
+		return "refuse", (
+			f"{app} in the snapshot is from a newer development commit ({strip(snap.get('commit'))}, "
+			f"{snap_date[:10]}) than this bench ({strip(ours.get('commit'))}, {our_date[:10]}); update the bench (bench update)"
+		)
+	return "migrate", f"{app} {strip(snap.get('commit')) or '?'} -> {strip(ours.get('commit')) or '?'} (development branch)"
+
+
+def app_commit_date(app: str) -> str | None:
+	"""ISO date of the app's checked-out commit (committer date), or None outside git."""
+	try:
+		path = frappe.get_app_path(app, "..")
+		out = subprocess.run(["git", "-C", path, "log", "-1", "--format=%cI", "HEAD"], capture_output=True, text=True)
+		return out.stdout.strip() or None
+	except Exception:
+		return None
 
 
 def bench_versions() -> dict[str, str]:
@@ -291,7 +332,10 @@ def dump(out_dir: str):
 		"data_from": str(start),
 		"data_to": str(end),
 		"built_at": now(),
-		"apps": {app: {"version": versions[app], "commit": app_commit(app)} for app in frappe.get_installed_apps()},
+		"apps": {
+			app: {"version": versions[app], "commit": app_commit(app), "date": app_commit_date(app)}
+			for app in frappe.get_installed_apps()
+		},
 		"mariadb": frappe.db.sql("select version()")[0][0],
 		"documents": run.totals(),
 		"admin_password": ADMIN_PASSWORD,
@@ -321,7 +365,10 @@ def check(dump_path: str) -> tuple[dict, list[str]]:
 		if app not in ours:
 			refusals.append(f"{app} {info['version']} is not on this bench (bench get-app {app})")
 			continue
-		action, reason = version_action(app, info["version"], ours[app])
+		snap_commit = {"commit": info.get("commit"), "date": info.get("date") or manifest.get("built_at")}
+		action, reason = version_action(
+			app, info["version"], ours[app], snap_commit, {"commit": app_commit(app), "date": app_commit_date(app)}
+		)
 		if action == "refuse":
 			refusals.append(reason)
 		elif action == "migrate":
