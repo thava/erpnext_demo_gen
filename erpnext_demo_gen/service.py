@@ -1,5 +1,5 @@
 """Service layer: install, status, uninstall. The CLI (commands.py) and the desk
-"Delete Demo Data" button (api.py) are thin wrappers over these functions (M-13).
+page (api.py) are thin wrappers over these functions (M-13).
 """
 
 import json

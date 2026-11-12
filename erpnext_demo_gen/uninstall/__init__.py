@@ -1,8 +1,7 @@
 """Uninstall a demo run (M-9, design 5.9).
 
 Order, as established by the Phase 0 spike (section 6.2):
-1. Restore the previous default company and clear Global Defaults.demo_company
-   (Company.on_trash refuses to delete the registered demo company).
+1. Restore the previous default company.
 2. Transactions. Tier B (default for a company the run created): ERPNext's
    Transaction Deletion Record for the whole company, in-process. Tier A (for
    --use-wizard-company runs, or with registry_only): each registered
@@ -76,10 +75,6 @@ def uninstall_run(run: Run, log=print, registry_only: bool = False, no_backup: b
 		run.set_status(
 			"Failed", error=f"Kept {len(skipped)} record(s):\n" + "\n".join(skipped), totals=True
 		)
-		if own_company and company and frappe.db.exists("Company", company):
-			# keep the desk's "Delete Demo Data" button available for another try
-			frappe.db.set_single_value("Global Defaults", "demo_company", company)
-			frappe.db.commit()
 		log(f"{len(skipped)} record(s) were kept because other data links to them:")
 		for line in skipped:
 			log(f"  {line}")
@@ -93,15 +88,13 @@ def restore_defaults(run: Run, company: str):
 	from erpnext_demo_gen.setup.company import set_default_company
 
 	default = frappe.db.get_single_value("Global Defaults", "default_company")
-	demo = frappe.db.get_single_value("Global Defaults", "demo_company")
-	if default != company and demo != company:
+	if default != company:
 		return
 	new_default = default
 	if default == company and not run.params.get("use_wizard_company"):
 		new_default = run.params.get("previous_default_company")
 		if not (new_default and frappe.db.exists("Company", new_default)) or new_default == company:
 			new_default = frappe.db.get_value("Company", {"name": ["!=", company]})
-	frappe.db.set_single_value("Global Defaults", "demo_company", None if demo == company else demo)
 	set_default_company(new_default)
 	frappe.db.commit()
 

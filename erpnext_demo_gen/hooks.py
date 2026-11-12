@@ -281,9 +281,4 @@ app_license = "gpl-3.0"
 # Demo data
 # ---------
 
-# The desk's "Delete Demo Data" button runs our uninstall for companies we created (DEC-19)
-override_whitelisted_methods = {
-	"erpnext.setup.demo.clear_demo_data": "erpnext_demo_gen.api.clear_demo_data",
-}
-
 required_apps = ["erpnext"]  # country apps (India: india_compliance) are checked by the pack's locale

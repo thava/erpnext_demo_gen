@@ -225,8 +225,6 @@ bench --site demo.localhost demo-gen install --country IN --end-date 2026-03-31
 ```bash
 bench --site demo.localhost demo-gen install --country US --demo-company-name "Lone Star Furniture Inc"
 # Creates the company "Lone Star Furniture Inc" and makes it the default company.
-# It is registered as ERPNext's demo company, so the desk's
-# "Delete Demo Data" button removes it, the same way uninstall does.
 
 bench --site demo.localhost demo-gen uninstall --yes
 # Deletes "Lone Star Furniture Inc" and restores the default company you had before.

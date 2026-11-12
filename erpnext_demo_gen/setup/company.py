@@ -4,8 +4,8 @@ Creates, through the registry: the demo Company (ERPNext installs the country's
 fixtures; in India india_compliance adds GST accounts and tax templates, F-5), its
 own Address with its tax ID (India: GSTIN; none with --no-gst, and in wizard mode
 only with --fictitious-gstin), the pack's warehouses and every Fiscal Year the date
-range touches. Then makes the demo company the default and registers it as
-ERPNext's demo company (DEC-19), remembering the previous default for uninstall.
+range touches. Then makes the demo company the default, remembering the previous
+default for uninstall. It is not registered as ERPNext's demo company (DEC-34).
 """
 
 import random
@@ -267,19 +267,16 @@ def set_defaults(run: Run, company: str):
 		run.update_params(
 			previous_default_company=frappe.db.get_single_value("Global Defaults", "default_company")
 		)
-	set_default_company(company, demo_company=None if run.params.use_wizard_company else company)
+	set_default_company(company)
 	frappe.db.commit()
 
 
-def set_default_company(company: str | None, demo_company: str | None = None):
-	"""Set the default (and demo) company without saving Global Defaults.
+def set_default_company(company: str | None):
+	"""Set the default company without saving Global Defaults.
 
 	Saving it runs on_update, which deletes and recreates rounding and in-words
 	Property Setters and queues a cleanup job for each; we only need the default.
 	"""
-	values = {"default_company": company}
-	if demo_company is not None or frappe.db.get_single_value("Global Defaults", "demo_company") == company:
-		values["demo_company"] = demo_company
-	frappe.db.set_single_value("Global Defaults", values)
+	frappe.db.set_single_value("Global Defaults", "default_company", company)
 	frappe.db.set_default("company", company or "")
 	frappe.clear_cache()
