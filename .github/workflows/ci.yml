@@ -20,7 +20,9 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "license.txt"] # docs-only commits need no tests
   pull_request:
+    paths-ignore: ["**.md", "license.txt"]
   schedule:
     - cron: "30 20 * * *" # nightly, 02:00 IST: tests and Small snapshots
     - cron: "30 21 * * 6" # weekly, Sunday 03:00 IST: Medium snapshots on version-16
