@@ -23,7 +23,7 @@ Germany                  furniture_store
 
 ## Requirements
 
-- frappe and erpnext version 16. CI also tests their `develop` branch (the next major version).
+- frappe and erpnext version 16, or their `develop` branch (the next major version).
 - The setup wizard is finished, for the demo's country and currency.
   For example, a German demo needs a site set up for Germany, in EUR.
 - The Redis queue is running (`bench start`). Uninstall needs it.
