@@ -1,7 +1,10 @@
 name: CI
 
 # Every push and pull request: unit tests and a micro smoke test per pack (install,
-# verify, uninstall, compare table counts), India, US, UAE and Germany. Nightly: Small snapshots for
+# verify, uninstall, compare table counts), India, US, UAE and Germany, on Frappe,
+# ERPNext and india_compliance version-16 and again on develop (the next major
+# version). develop failures are reported but do not fail the run: they warn early
+# about changes coming in the next major version. Nightly: Small snapshots for
 # every pack too. Weekly or on request: one Medium snapshot, electrical_distributor in even ISO
 # weeks and furniture_store in odd ones. Every snapshot a run builds is restored on
 # a new site and verified, then kept as a build artifact. A failure means ERPNext,
@@ -45,9 +48,16 @@ env:
 
 jobs:
   tests:
-    name: Unit and smoke tests
+    name: Unit and smoke tests (${{ matrix.frappe_branch }})
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        frappe_branch: [version-16, develop]
+    continue-on-error: ${{ matrix.frappe_branch == 'develop' }}
+    env:
+      FRAPPE_BRANCH: ${{ matrix.frappe_branch }}
     services:
       mariadb:
         image: mariadb:11.8
