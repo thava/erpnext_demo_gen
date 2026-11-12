@@ -23,7 +23,7 @@ Germany                  furniture_store
 
 ## Requirements
 
-- frappe and erpnext, version 16 or later.
+- frappe and erpnext version 16. CI also tests their `develop` branch (the next major version).
 - The setup wizard is finished, for the demo's country and currency.
   For example, a German demo needs a site set up for Germany, in EUR.
 - The Redis queue is running (`bench start`). Uninstall needs it.
@@ -695,8 +695,9 @@ A snapshot is a ready-made demo site: a database dump plus a manifest.
 
 ### Download a ready-made snapshot
 
-Each [release](https://github.com/thava/erpnext_demo_gen/releases) has Small and Medium
-snapshots for every country and pack, built and verified in CI:
+Ready-made snapshots are published every month as releases named `snapshots-YYYY-MM`.
+The last three months are kept. Each set has Small and Medium snapshots for every
+country and pack, built and verified in CI:
 
 ```
 India            furniture_store, electrical_distributor     small, medium
@@ -705,49 +706,51 @@ UAE              furniture_store                              small, medium
 Germany          furniture_store                              small, medium
 ```
 
-Download one and make a site from it:
+See which sets exist, then download one and make a site from it:
 
 ```bash
+gh release list -R thava/erpnext_demo_gen     # the snapshots-YYYY-MM releases
+
 # India
-gh release download v0.1.0 -R thava/erpnext_demo_gen -p '*furniture_store-IN-medium*'
+gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-IN-medium*'
 # Downloads the dump (.sql.gz) and its manifest (.json).
 bench demo-gen snapshot new-site mumbai.localhost demo-furniture_store-IN-medium-*.sql.gz
 # Creates mumbai.localhost with two years of data, in about 15 seconds.
 
 # United States
-gh release download v0.1.0 -R thava/erpnext_demo_gen -p '*furniture_store-US-medium*'
+gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-US-medium*'
 bench demo-gen snapshot new-site austin.localhost demo-furniture_store-US-medium-*.sql.gz
 
 # UAE
-gh release download v0.1.0 -R thava/erpnext_demo_gen -p '*furniture_store-AE-medium*'
+gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-AE-medium*'
 bench demo-gen snapshot new-site dubai.localhost demo-furniture_store-AE-medium-*.sql.gz
 
 # Germany
-gh release download v0.1.0 -R thava/erpnext_demo_gen -p '*furniture_store-DE-medium*'
+gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-DE-medium*'
 bench demo-gen snapshot new-site munich.localhost demo-furniture_store-DE-medium-*.sql.gz
 ```
 
 - File names follow `demo-<pack>-<country>-<size>-...`, so `'*-AE-small*'` picks
   the UAE's Small snapshot. Without `gh`, download from the release page in a browser.
-- The bench needs the same major version (v16), at the release the snapshot was built on
-  or newer. A newer bench migrates the site after restore. The release notes list the versions.
 - India snapshots need india_compliance on the bench.
-- The data ends on the day the release was built.
+- The data ends on the day the set was built.
 
-**Snapshots for develop.** The pre-release
+**Which set fits your bench.** Each release lists the Frappe and ERPNext versions it
+was built on, for example Frappe 16.56.0 and ERPNext 16.54.0. A snapshot restores on a
+bench with the same Frappe and ERPNext versions or later ones: restoring migrates it
+forward. So if your bench runs an earlier version-16 minor release of Frappe or
+ERPNext than the newest set, pick an older set built on that release or before it.
+`new-site` checks this and says when a set is too new.
+
+Micro and Small demos also install directly in a few minutes, and a snapshot you
+build yourself (below) can be reused as often as you like.
+
+**develop.** For the next major version, the pre-release
 [develop-snapshots](https://github.com/thava/erpnext_demo_gen/releases/tag/develop-snapshots)
-has the same ten snapshots built on Frappe and ERPNext `develop` (the next major version).
-It is rebuilt every week, and its files are replaced each time.
-
-```bash
-gh release download develop-snapshots -R thava/erpnext_demo_gen -p '*furniture_store-AE-small*'
-bench demo-gen snapshot new-site dev-demo.localhost demo-furniture_store-AE-small-*.sql.gz
-# on a develop bench: needs the commits in the release notes or newer (bench update first)
-```
-
-- develop keeps one version number (such as `17.0.0-dev`) while its code changes daily,
-  so `new-site` compares commit dates instead. A snapshot from an older commit is
-  restored and migrated; one from a newer commit is refused until you update the bench.
+has the same snapshots built on Frappe and ERPNext `develop`, rebuilt every week.
+develop keeps one version number (such as `17.0.0-dev`) while its code changes daily,
+so `new-site` compares commit dates there: a snapshot from an older commit is migrated,
+one from a newer commit is refused until you update the bench.
 
 ### Build your own
 
