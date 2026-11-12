@@ -24,6 +24,7 @@ import random
 
 from erpnext_demo_gen.locales import Locale, squash
 from erpnext_demo_gen.planner import weighted
+from erpnext_demo_gen.compat import append_template_taxes
 
 CHART = "SKR04 mit Kontonummern"
 
@@ -299,7 +300,7 @@ class DELocale(Locale):
 		item's template: input VAT, EU and reverse-charge accounts, each at 19% (F-48)."""
 		doc.taxes_and_charges = template
 		doc.set("taxes", [])
-		doc.append_taxes_from_master()
+		append_template_taxes(doc)
 
 	# ---------------------------------------------------------- install parameters
 	required_apps = ("erpnext",)

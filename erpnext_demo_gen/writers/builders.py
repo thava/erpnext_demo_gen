@@ -8,6 +8,7 @@ it as Reused, so dependants can use it but uninstall leaves it alone.
 
 import frappe
 from frappe.utils.nestedset import get_root_of
+from erpnext_demo_gen.compat import append_template_taxes, mapper
 
 
 def insert(doc):
@@ -223,7 +224,7 @@ def _save(doc, pd, submit=True, fill_taxes=False, tax_inclusive=False):
 			row.included_in_print_rate = 1
 	insert(doc)
 	if fill_taxes and doc.get("taxes_and_charges") and not doc.get("taxes"):
-		doc.append_taxes_from_master()
+		append_template_taxes(doc)
 		if tax_inclusive:  # retail shelf prices include GST
 			for row in doc.taxes:
 				row.included_in_print_rate = 1
@@ -301,7 +302,7 @@ def material_request(p, w, pd):
 def stock_issue(p, w, pd):
 	"""Issue a staff request's supplies from their store (Stock Entry, Material Issue);
 	the cost goes to the items' expense account."""
-	from erpnext.stock.doctype.material_request.material_request import make_stock_entry
+	make_stock_entry = mapper("erpnext.stock.doctype.material_request.material_request", "make_stock_entry")
 
 	doc = make_stock_entry(p.material_request)
 	qty = {line["item"]: line["qty"] for line in p.lines}
@@ -314,7 +315,7 @@ def stock_issue(p, w, pd):
 
 def purchase_invoice_from_order(p, w, pd):
 	"""A bill straight from the order, for non-stock consumables (nothing to receive)."""
-	from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_invoice
+	make_purchase_invoice = mapper("erpnext.buying.doctype.purchase_order.purchase_order", "make_purchase_invoice")
 
 	doc = make_purchase_invoice(p.purchase_order)
 	doc.bill_no = p.bill_no
@@ -327,7 +328,7 @@ def purchase_invoice_from_order(p, w, pd):
 
 def purchase_order(p, w, pd):
 	if p.get("material_request"):
-		from erpnext.stock.doctype.material_request.material_request import make_purchase_order
+		make_purchase_order = mapper("erpnext.stock.doctype.material_request.material_request", "make_purchase_order")
 
 		doc = make_purchase_order(p.material_request)
 		doc.supplier = p.supplier
@@ -350,13 +351,13 @@ def purchase_order(p, w, pd):
 
 
 def purchase_receipt(p, w, pd):
-	from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_receipt
+	make_purchase_receipt = mapper("erpnext.buying.doctype.purchase_order.purchase_order", "make_purchase_receipt")
 
 	return _save(make_purchase_receipt(p.purchase_order), pd)
 
 
 def purchase_invoice(p, w, pd):
-	from erpnext.stock.doctype.purchase_receipt.purchase_receipt import make_purchase_invoice
+	make_purchase_invoice = mapper("erpnext.stock.doctype.purchase_receipt.purchase_receipt", "make_purchase_invoice")
 
 	doc = make_purchase_invoice(p.purchase_receipt)
 	doc.bill_no = p.bill_no
@@ -402,16 +403,15 @@ def quotation(p, w, pd):
 
 def sales_order(p, w, pd):
 	if p.get("quotation"):
-		from erpnext.selling.doctype.quotation import quotation as quotation_module
-
+		quotation = "erpnext.selling.doctype.quotation.quotation"
 		# The public make_sales_order refuses quotations whose valid_till is before
 		# *today*, which every historical quotation is. Its inner mapper does the same
 		# mapping without that check (F-27; watch for upstream drift).
-		mapper = getattr(quotation_module, "_make_sales_order", None)
-		if mapper:
-			doc = mapper(p.quotation, ignore_permissions=True)
+		inner = mapper(quotation, "_make_sales_order", required=False)
+		if inner:
+			doc = inner(p.quotation, ignore_permissions=True)
 		else:
-			doc = quotation_module.make_sales_order(p.quotation)
+			doc = mapper(quotation, "make_sales_order")(p.quotation)
 	else:
 		doc = frappe.get_doc(
 			{
@@ -430,7 +430,7 @@ def sales_order(p, w, pd):
 
 
 def delivery_note(p, w, pd):
-	from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+	make_delivery_note = mapper("erpnext.selling.doctype.sales_order.sales_order", "make_delivery_note")
 
 	doc = make_delivery_note(p.sales_order)
 	if p.get("fraction"):
@@ -455,7 +455,7 @@ def _credit_terms(doc, days):
 
 
 def invoice_from_delivery(p, w, pd):
-	from erpnext.stock.doctype.delivery_note.delivery_note import make_sales_invoice
+	make_sales_invoice = mapper("erpnext.stock.doctype.delivery_note.delivery_note", "make_sales_invoice")
 
 	doc = make_sales_invoice(p.delivery_note)
 	_dated(doc, pd)
@@ -481,7 +481,7 @@ def counter_sales_invoice(p, w, pd):
 
 
 def sales_return(p, w, pd):
-	from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
+	make_sales_return = mapper("erpnext.accounts.doctype.sales_invoice.sales_invoice", "make_sales_return")
 
 	doc = make_sales_return(p.against)
 	doc.items = [row for row in doc.items if row.item_code == p.item][:1]
