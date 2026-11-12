@@ -3,7 +3,7 @@
     demo-gen list-packs
     demo-gen install --country IN|US|AE|DE [--pack furniture_store] [--size small|medium|large] [--seed N] [--end-date YYYY-MM-DD]
                       [--home-state TN] [--demo-company-name NAME] [--use-wizard-company]
-                      [--no-gst | --fictitious-gstin] [--force]
+                      [--unregistered] [--force]
     demo-gen status
     demo-gen history [--run DD-RUN-00001] [--limit 10]
     demo-gen verify [--run DD-RUN-00001]
@@ -56,7 +56,7 @@ def demo_gen():
 	install and snapshot build need --country (IN, US, AE or DE; no default, so the country
 	is always a deliberate choice); --pack is optional (the country's default pack).
 	India: INR prices, customers and suppliers with GSTINs, GST through india_compliance
-	(which must be installed); --no-gst --force for a business not registered for GST.
+	(which must be installed); --unregistered --force for a business not registered for GST.
 	US: a Texas business selling in Texas, USD, sales and use tax.
 	AE: a VAT-registered Dubai business, AED, 5% VAT (ERPNext's UAE VAT 201 report).
 	DE: a Munich GmbH, EUR, SKR04 chart, 19% / 7% VAT (ERPNext's German tax templates).
@@ -110,19 +110,15 @@ def list_packs():
 	"Needs --force only if that company already has transactions",
 )
 @click.option(
-	"--no-gst",
+	"--unregistered",
 	is_flag=True,
-	help="Unregistered company: no GST on sales, purchase GST in cost. Needs --force (turnover is above the threshold)",
-)
-@click.option(
-	"--fictitious-gstin",
-	is_flag=True,
-	help="Wizard company without a GSTIN: add a company address with a made-up GSTIN (removed on uninstall)",
+	help="A business not registered for sales tax: none on sales, tax paid on purchases is a cost. "
+	"India only for now; needs --force (the demo's turnover is above the threshold)",
 )
 @click.option(
 	"--force",
 	is_flag=True,
-	help="Needed when: the site already has transactions; the GST API is on; or --no-gst is used",
+	help="Needed when: the site already has transactions; the GST API is on; or --unregistered is used",
 )
 @click.option("--verbose", is_flag=True, help="At the end, list what was created per doctype")
 @pass_context
@@ -136,8 +132,7 @@ def install(
 	home_state,
 	demo_company_name,
 	use_wizard_company,
-	no_gst,
-	fictitious_gstin,
+	unregistered,
 	force,
 	verbose,
 ):
@@ -155,8 +150,7 @@ def install(
 			use_wizard_company,
 			force,
 			log=_log,
-			no_gst=no_gst,
-			fictitious_gstin=fictitious_gstin,
+			unregistered=unregistered,
 			country=country,
 		)
 		_log(f"{run.name} completed: {_documents(run.totals())} in {run.doc.company}{_took(run)}")

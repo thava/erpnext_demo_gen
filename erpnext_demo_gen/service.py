@@ -100,7 +100,7 @@ def check_redis():
 
 # ---------------------------------------------------------------- install
 def resolve_params(
-	pack_id, size, seed, end_date, home_state, company, use_wizard_company, no_gst=False, fictitious_gstin=False
+	pack_id, size, seed, end_date, home_state, company, use_wizard_company, unregistered=False
 ) -> tuple[dict, dict]:
 	from erpnext_demo_gen.locales import get_locale
 
@@ -111,7 +111,7 @@ def resolve_params(
 		given, home_state = home_state, locale.resolve_region(home_state)
 		if not home_state:
 			raise DemoDataError(f"Unknown state {given!r}; use a name or code: {choices}")
-	locale.check_options(no_gst, fictitious_gstin)
+	locale.check_options(unregistered)
 	if size not in pack["sizes"]:
 		raise DemoDataError(f"Unknown size {size!r}; choose one of {', '.join(pack['sizes'])}")
 	params = {
@@ -126,11 +126,9 @@ def resolve_params(
 		"home_state": home_state or pack["company"]["home_state"],
 		"company": company,
 		"use_wizard_company": bool(use_wizard_company),
-		"gst": "unregistered" if no_gst else "registered",
-		"fictitious_gstin": False,
+		"registration": "unregistered" if unregistered else "registered",
+		"fictitious_gstin": False,  # India wizard mode: set by check_wizard_company
 	}
-	if no_gst and fictitious_gstin:
-		raise DemoDataError("Choose one of --no-gst and --fictitious-gstin")
 	if use_wizard_company and not WIZARD_COMPANY_SUPPORTED:
 		raise DemoDataError(
 			"--use-wizard-company is not available yet: removing demo transactions from your own "
@@ -152,7 +150,7 @@ def resolve_params(
 				f"addresses, tax setup and {locale.currency} prices would not fit."
 			)
 		params["company"] = wizard
-		locale.check_wizard_company(wizard, params, home_state, no_gst, fictitious_gstin)
+		locale.check_wizard_company(wizard, params, home_state, unregistered)
 	elif company and frappe.db.exists("Company", company):
 		raise DemoDataError(
 			f"Company {company!r} already exists; pick another --demo-company-name or use --use-wizard-company"
@@ -162,7 +160,7 @@ def resolve_params(
 	return pack, params
 
 
-INPUT_KEYS = ("pack", "size", "seed", "end_date", "home_state", "use_wizard_company", "gst", "fictitious_gstin")
+INPUT_KEYS = ("pack", "size", "seed", "end_date", "home_state", "use_wizard_company", "registration", "fictitious_gstin")
 
 
 def find_resumable(params: dict) -> Run | None:
@@ -195,8 +193,7 @@ def install(
 	use_wizard_company=False,
 	force=False,
 	log=print,
-	no_gst=False,
-	fictitious_gstin=False,
+	unregistered=False,
 	country=None,
 ):
 	"""Install a pack for a country. The country is required and explicit; the pack is
@@ -224,10 +221,10 @@ def install(
 	pack = pack_id
 	warnings = preflight(force, locale)
 	pack_data, params = resolve_params(
-		pack, size, seed, end_date, home_state, company, use_wizard_company, no_gst, fictitious_gstin
+		pack, size, seed, end_date, home_state, company, use_wizard_company, unregistered
 	)
 	site_in_use(params, force, log)
-	if params["gst"] == "unregistered":
+	if params["registration"] == "unregistered":
 		if not force:
 			raise DemoDataError(f"Refusing to install: {locale.unregistered_warning}. Use --force to install anyway.")
 		warnings.append(locale.unregistered_warning)
@@ -298,7 +295,7 @@ def plan_for(run: Run, pack: dict) -> list:
 
 	start, end = date_range(getdate(run.params.end_date), run.params.months)
 	ctx = PlanContext(pack, run.params.size, run.params.seed, run.params.home_state, start, end)
-	ctx.sales_tax = run.params.get("gst", "registered") == "registered"
+	ctx.sales_tax = run.params.get("registration", "registered") == "registered"
 	return make_plan(ctx)
 
 

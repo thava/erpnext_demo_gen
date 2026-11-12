@@ -2,8 +2,8 @@
 
 Creates, through the registry: the demo Company (ERPNext installs the country's
 fixtures; in India india_compliance adds GST accounts and tax templates, F-5), its
-own Address with its tax ID (India: GSTIN; none with --no-gst, and in wizard mode
-only with --fictitious-gstin), the pack's warehouses and every Fiscal Year the date
+own Address with its tax ID (India: GSTIN; none with --unregistered; in wizard mode
+added with a made-up GSTIN), the pack's warehouses and every Fiscal Year the date
 range touches. Then makes the demo company the default, remembering the previous
 default for uninstall. It is not registered as ERPNext's demo company (DEC-34).
 """
@@ -114,7 +114,7 @@ def setup_company(run: Run, pack: dict) -> str:
 	for fy_start in fiscal_year_starts(start, end, locale):
 		ensure_fiscal_year(run, fy_start, company, locale)
 
-	locale.setup_taxes(run, company, abbr, pack)  # India: no-ITC templates (--no-gst), SEZ switch
+	locale.setup_taxes(run, company, abbr, pack)  # India: no-ITC templates (--unregistered), SEZ switch
 	setup_banking(run, company, abbr, pack)
 
 	set_defaults(run, company)

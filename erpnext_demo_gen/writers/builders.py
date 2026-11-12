@@ -346,7 +346,7 @@ def purchase_order(p, w, pd):
 			}
 		)
 	doc.schedule_date = p.schedule_date
-	w.locale.purchase_taxes(doc, w)  # India --no-gst: the no-ITC template (F-38)
+	w.locale.purchase_taxes(doc, w)  # India --unregistered: the no-ITC template (F-38)
 	return _save(doc, pd, fill_taxes=True)
 
 

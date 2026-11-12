@@ -262,15 +262,6 @@ class AELocale(Locale):
 	def region_choices(self) -> str:
 		return ", ".join(f"{code} ({name})" for code, name in EMIRATE_CODES.items())
 
-	def check_options(self, unregistered: bool, fictitious_id: bool):
-		from erpnext_demo_gen.service import DemoDataError
-
-		if unregistered or fictitious_id:
-			raise DemoDataError("--no-gst and --fictitious-gstin are for India packs")
-
-	def check_wizard_company(self, company: str, params: dict, home_region: str | None, unregistered: bool, fictitious_id: bool):
-		params["home_state"] = home_region or params["home_state"]
-
 	def validate_pack(self, pack: dict, check):
 		state = (pack.get("company") or {}).get("home_state")
 		check(state in CITIES, "company.home_state", f"must be an emirate: {', '.join(CITIES)}")

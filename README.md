@@ -46,7 +46,7 @@ A quick reference. The [tutorial](#tutorial) below explains each option with exa
 bench --site <site> demo-gen list-packs
 bench --site <site> demo-gen install --country IN|US|AE|DE [--pack NAME] [--size small|medium|large]
       [--seed N] [--end-date YYYY-MM-DD] [--home-state STATE] [--demo-company-name NAME]
-      [--use-wizard-company] [--no-gst | --fictitious-gstin] [--force] [--verbose]
+      [--use-wizard-company] [--unregistered] [--force] [--verbose]
 bench --site <site> demo-gen status
 bench --site <site> demo-gen history [--run DD-RUN-00001] [--limit 20]
 bench --site <site> demo-gen verify [--run DD-RUN-00001]
@@ -273,7 +273,7 @@ This is safe, but because the site is in use, installing needs --force.
 bench --site demo.localhost demo-gen install --country IN --force
 ```
 
-- `--force` is also needed when the GST API is on (India), or with `--no-gst`.
+- `--force` is also needed when the GST API is on (India), or with `--unregistered`.
 
 ### Stop and resume
 
@@ -323,18 +323,29 @@ bench --site demo.localhost demo-gen uninstall
 bench --site demo.localhost demo-gen uninstall --no-backup     # skip the backup
 ```
 
+The company must not have a tax ID. Demo invoices are issued under the company's
+tax ID, so DemoGen never uses a real one:
+
+```bash
+bench --site demo.localhost demo-gen install --country AE --use-wizard-company
+# Error: My Company LLC has a tax ID (Company Tax ID); DemoGen never uses a real one.
+# Install without --use-wizard-company to get a new demo company.
+```
+
+- Tax ID means the company's *Tax ID* field in every country. In India also its GSTIN:
+  on the company, or on one of its own addresses.
+- A new demo company always gets a made-up tax ID (valid format and check digit).
+
 Country notes:
 
 - Germany: the company must use the SKR04 chart (*SKR04 mit Kontonummern*).
-- India: the company needs a GSTIN. If its company address has one, its GST state
-  becomes the home state. If not, pick one of these:
+- India: GST needs a GSTIN, so the demo adds a company address with a made-up one,
+  titled "(demo, fictitious GSTIN)". Uninstall removes it. To leave GST out instead:
 
 ```bash
-bench --site demo.localhost demo-gen install --country IN --use-wizard-company --fictitious-gstin
-# Adds a company address with a made-up GSTIN. Uninstall removes it.
-
-bench --site demo.localhost demo-gen install --country IN --use-wizard-company --no-gst --force
-# Treats the company as not registered for GST. See "Unregistered businesses" below.
+bench --site demo.localhost demo-gen install --country IN --use-wizard-company --unregistered --force
+# Treats the company as not registered for GST. No address is added.
+# See "Unregistered businesses" below.
 ```
 
 ### Keep what you added to the demo company
@@ -392,14 +403,14 @@ bench --site demo.localhost demo-gen install --country IN --pack electrical_dist
 - Each item's GST rate comes from its Item Tax Template.
 - Two demo bank accounts, UPI and card receipts, weekly transfers.
   See [Banks and payments](#banks-and-payments).
-- Unregistered businesses are supported with `--no-gst`. See the next section.
+- Unregistered businesses are supported with `--unregistered`. See the next section.
 
 ### Unregistered businesses (no GST)
 
 Many small Indian businesses are not registered for GST. This demo can show one:
 
 ```bash
-bench --site demo.localhost demo-gen install --country IN --no-gst --force
+bench --site demo.localhost demo-gen install --country IN --unregistered --force
 ```
 
 ERPNext and india_compliance do not handle this case by themselves.
@@ -462,7 +473,7 @@ rule 2    no state                      template: Input GST Out-state (no ITC)
 - **Turnover above the threshold.** The demo uses the pack's normal volume. That is above
   the registration threshold (Rs 40 lakh a year for goods; Rs 20 lakh in special-category
   states). Install prints a warning: a real business that size must register.
-- **Your own company.** With `--use-wizard-company --no-gst`, the two templates are
+- **Your own company.** With `--use-wizard-company --unregistered`, the two templates are
   created in your company. Uninstall removes them, unless your own documents use them;
   those are kept and listed. To keep using them after uninstall, make your own copies.
 - `verify` checks that sales carry no GST, and that purchases from registered
@@ -504,7 +515,8 @@ categories      Tax Categories "Reseller" and "Out of State", with Tax Rules, so
 - ERPNext's own US templates (US ST 6% and others) stay, but are no longer the defaults.
 - Payments: Check, ACH, Wire Transfer and Card. Account and routing numbers are made up.
 - The fiscal year runs January to December.
-- `--no-gst` and `--fictitious-gstin` do not apply. `--home-state` accepts only TX.
+- `--unregistered` is refused: a Texas business selling taxable items needs a sales tax
+  permit, with no small-business threshold. `--home-state` accepts only TX.
 
 ### United Arab Emirates
 

@@ -133,13 +133,13 @@ class IndiaLocale(Locale):
 			"default_currency": "INR",
 			"chart_of_accounts": "Standard",
 			"default_gst_rate": "18.0",  # Select field of strings (F-24)
-			**({"gst_category": "Unregistered"} if params.get("gst") == "unregistered" else {}),
+			**({"gst_category": "Unregistered"} if params.get("registration") == "unregistered" else {}),
 		}
 
 	def wants_company_address(self, params) -> bool:
-		"""The GSTIN lives on the company address: none with --no-gst, and in wizard mode
-		only with --fictitious-gstin (the user's own company otherwise stays as it is)."""
-		return params.get("gst") != "unregistered" and (not params.use_wizard_company or params.get("fictitious_gstin"))
+		"""The GSTIN lives on the company address: none with --unregistered. In wizard mode the
+		company has none of its own (DEC-35), so the address carries a made-up one."""
+		return params.get("registration") != "unregistered"
 
 	def company_address(self, rng: random.Random, company: str, region: str, wizard: bool) -> dict:
 		gstin = make_gstin(geo.state_code(region), make_pan(rng, "company", company))
@@ -167,11 +167,11 @@ class IndiaLocale(Locale):
 		return date(fy_start.year + 1, 3, 31)
 
 	def setup_taxes(self, run, company: str, abbr: str, pack: dict):
-		"""No-ITC purchase templates for an unregistered company (--no-gst), and GST
+		"""No-ITC purchase templates for an unregistered company (--unregistered), and GST
 		Settings' SEZ switch when the pack sells to SEZ units."""
 		from erpnext_demo_gen.setup.tax_templates import ensure_no_itc_templates
 
-		if run.params.get("gst") == "unregistered":
+		if run.params.get("registration") == "unregistered":
 			ensure_no_itc_templates(run, company, abbr)
 		self._enable_sez(run, pack)
 
@@ -179,10 +179,10 @@ class IndiaLocale(Locale):
 		"""SEZ customers need GST Settings' "Enable SEZ / Overseas Transactions", as a real
 		business with SEZ customers would have; india_compliance refuses their orders
 		otherwise. A site-wide setting, so the previous value is recorded and uninstall
-		restores it. Not needed without GST (--no-gst plans no SEZ customers)."""
+		restores it. Not needed without GST (--unregistered plans no SEZ customers)."""
 		import frappe
 
-		if not pack["behavior"]["gst_categories"].get("sez") or run.params.get("gst") == "unregistered":
+		if not pack["behavior"]["gst_categories"].get("sez") or run.params.get("registration") == "unregistered":
 			return
 		if "gst_settings" in run.params:
 			return  # recorded on a previous attempt
@@ -202,7 +202,7 @@ class IndiaLocale(Locale):
 	# ---------------------------------------------------------- writing documents
 	def writer_context(self, run, company: str) -> dict:
 		"""india_compliance's Item Tax Templates by GST rate ("GST 18% - ABC"), the
-		India territory, and the home state's GST code (for --no-gst purchases)."""
+		India territory, and the home state's GST code (for --unregistered purchases)."""
 		import frappe
 		from frappe.utils.nestedset import get_root_of
 
@@ -246,7 +246,7 @@ class IndiaLocale(Locale):
 		return {"gst_hsn_code": p.hsn, "taxes": [{"item_tax_template": w.item_tax_template(p.gst_rate)}]}
 
 	def purchase_taxes(self, doc, w):
-		"""Unregistered company (--no-gst): nothing picks a template (F-38), so select the
+		"""Unregistered company (--unregistered): nothing picks a template (F-38), so select the
 		no-ITC one by the supplier's state, as the user would; an unregistered supplier
 		charges none. A registered company keeps what ERPNext picks."""
 		if w.tax_registered:
@@ -262,7 +262,6 @@ class IndiaLocale(Locale):
 
 	# ---------------------------------------------------------- install parameters
 	required_apps = ("erpnext", "india_compliance")
-	snapshot_install_args = ("--fictitious-gstin",)  # the build site's wizard company has no GSTIN
 	unregistered_warning = (
 		"generating without GST: the company is unregistered, so sales carry no GST and the GST "
 		"paid on purchases becomes part of their cost (no input tax credit). This demo's turnover "
@@ -280,6 +279,9 @@ class IndiaLocale(Locale):
 				"(e-invoice, e-waybill, GSTIN lookups)"
 			]
 		return []
+
+	def check_options(self, unregistered: bool):
+		"""--unregistered is supported: no GST, purchase GST in cost (F-38)."""
 
 	def resolve_region(self, text: str) -> str | None:
 		return geo.resolve_state(text)
@@ -310,11 +312,15 @@ class IndiaLocale(Locale):
 			value = banking.get(key)
 			check(isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 1, f"banking.{key}", "must be a positive number")
 
-	def company_gst_state(self, company: str) -> str | None:
-		"""The GST state of the company's own GSTIN address, or None when it has none. Without
-		one, india_compliance treats the company as unregistered and charges no GST (F-37)."""
+	def company_tax_id(self, company: str) -> str | None:
+		"""India keeps the GSTIN on the Company (india_compliance's field) or, the usual
+		place, on the company's own address (F-37)."""
 		import frappe
 
+		if super().company_tax_id(company):
+			return "Company Tax ID"
+		if frappe.db.get_value("Company", company, "gstin"):
+			return "Company GSTIN"
 		addresses = frappe.get_all(
 			"Address",
 			filters=[
@@ -322,40 +328,19 @@ class IndiaLocale(Locale):
 				["Dynamic Link", "link_name", "=", company],
 				["is_your_company_address", "=", 1],
 				["gstin", "is", "set"],
-				["disabled", "=", 0],
 			],
-			fields=["gst_state"],
-			order_by="is_primary_address desc, creation asc",
+			pluck="name",
 			limit=1,
 		)
-		return addresses[0].gst_state if addresses else None
+		return f"GSTIN on address {addresses[0]}" if addresses else None
 
-	def check_wizard_company(self, company: str, params: dict, home_region: str | None, unregistered: bool, fictitious_id: bool):
-		"""Wizard mode needs to know the company's GST state: from its GSTIN address, or a
-		made-up GSTIN (--fictitious-gstin), or none at all (--no-gst)."""
-		from erpnext_demo_gen.service import DemoDataError
-
-		state = self.company_gst_state(company)
-		if state and (unregistered or fictitious_id):
-			raise DemoDataError(
-				f"{company!r} is already GST-registered (state {state}); leave out --no-gst and --fictitious-gstin"
-			)
-		if state:
-			if home_region and home_region != state:
-				raise DemoDataError(
-					f"--home-state {home_region!r} differs from the GST state of {company!r} ({state}); "
-					"leave --home-state out in wizard mode"
-				)
-			params["home_state"] = state
-		elif fictitious_id:
-			params["fictitious_gstin"] = True  # setup adds a labelled address; uninstall removes it
-		elif not unregistered:
-			raise DemoDataError(
-				f"{company!r} has no GSTIN (no company address with one), so it is unregistered for GST "
-				"and india_compliance charges no GST (F-37). Either add your company address with its "
-				"GSTIN, or pass --fictitious-gstin to have the demo add an address with a made-up GSTIN "
-				"(removed on uninstall), or pass --no-gst --force to generate the demo without GST."
-			)
+	def check_wizard_company(self, company: str, params: dict, home_region: str | None, unregistered: bool):
+		"""A company without a GSTIN is unregistered for india_compliance, which then charges
+		no GST (F-37). Registered (the default): the demo adds a labelled company address
+		with a made-up GSTIN, removed on uninstall. --unregistered: no address, no GST."""
+		super().check_wizard_company(company, params, home_region, unregistered)
+		if not unregistered:
+			params["fictitious_gstin"] = True  # setup adds the address; uninstall removes it
 
 	# ---------------------------------------------------------- verify
 	def tax_checks(self, ctx) -> list:
@@ -366,7 +351,7 @@ class IndiaLocale(Locale):
 
 		Registered (F-16): every submitted sale and every purchase from a GST-registered
 		supplier carries GST rows, except zero-rated SEZ and export supplies made without
-		GST (under a bond). Unregistered (--no-gst): sales carry none, and those
+		GST (under a bond). Unregistered (--unregistered): sales carry none, and those
 		purchases carry GST as part of cost ("Valuation and Total"), since no credit can
 		be claimed.
 		"""
@@ -374,7 +359,7 @@ class IndiaLocale(Locale):
 
 		from erpnext_demo_gen.verify import Check
 
-		registered = ctx.run.params.get("gst", "registered") == "registered"
+		registered = ctx.run.params.get("registration", "registered") == "registered"
 		wrong = []
 		sales_rows = "exists" if registered else "not exists"
 		# SEZ and export supplies are zero-rated: without "export with GST" (supply under a

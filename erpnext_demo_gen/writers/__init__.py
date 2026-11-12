@@ -36,7 +36,7 @@ class WriteContext:
 	selling_price_list: str
 	buying_price_list: str
 	tax_templates: dict = field(default_factory=dict)  # locale key (India: GST rate) -> Item Tax Template
-	tax_registered: bool = True  # False with --no-gst: no tax on sales, purchase tax is a cost
+	tax_registered: bool = True  # False with --unregistered: no tax on sales, purchase tax is a cost
 	locale: object = None  # erpnext_demo_gen.locales.Locale
 	locale_data: dict = field(default_factory=dict)  # whatever the locale's builders need
 	bank_account: str = ""  # the demo's main Bank Account and its ledger (setup_banking)
@@ -60,7 +60,7 @@ class WriteContext:
 			or "Standard Selling",
 			buying_price_list=frappe.db.get_single_value("Buying Settings", "buying_price_list")
 			or "Standard Buying",
-			tax_registered=run.params.get("gst", "registered") == "registered",
+			tax_registered=run.params.get("registration", "registered") == "registered",
 			locale=locale,
 			**locale.writer_context(run, company),
 			bank_account=(run.params.get("banking") or {}).get("bank_account", ""),

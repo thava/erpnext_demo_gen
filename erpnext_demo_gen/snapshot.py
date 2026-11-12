@@ -205,10 +205,7 @@ def build(
 	try:
 		bench(["--site", site, "execute", "erpnext_demo_gen.snapshot.complete_setup", "--kwargs", json.dumps({"pack": pack, "seed": seed})], log)
 		install = ["--site", site, "demo-gen", "install", "--country", info["country"], "--pack", info["pack"]]
-		install += ["--size", size, "--seed", str(seed)]
-		from erpnext_demo_gen.locales import get_locale
-
-		install += ["--use-wizard-company", *get_locale(load_pack(pack)).snapshot_install_args]
+		install += ["--size", size, "--seed", str(seed), "--use-wizard-company"]
 		install += ["--end-date", end_date] if end_date else []
 		bench(install, log)
 		bench(["--site", site, "demo-gen", "verify"], log)

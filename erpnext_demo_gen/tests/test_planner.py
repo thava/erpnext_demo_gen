@@ -86,7 +86,7 @@ class TestMasterPlan(UnitTestCase):
 		self.assertTrue(all(p["address"]["state"] == "Karnataka" for p in b2c))
 
 	def test_unregistered_company_sells_only_in_home_state(self):
-		# inter-state and SEZ supplies need GST registration (--no-gst)
+		# inter-state and SEZ supplies need GST registration (--unregistered)
 		_, docs = plan(pack_id="electrical_distributor", home="Karnataka", sales_tax=False)
 		customers = [d.params for d in docs if d.doctype == "Customer"]
 		self.assertTrue(all(p["address"]["state"] == "Karnataka" for p in customers if p.get("address")))

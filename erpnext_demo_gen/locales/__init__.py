@@ -155,7 +155,6 @@ class Locale:
 
 	# ---------------------------------------------------------- install parameters
 	required_apps: tuple[str, ...] = ("erpnext",)
-	snapshot_install_args: tuple[str, ...] = ()  # extra `install` options for a snapshot's wizard company
 	unregistered_warning = ""  # shown (and needing --force) when installing unregistered
 
 	def preflight_problems(self) -> list[str]:
@@ -174,8 +173,12 @@ class Locale:
 		"""Regions a demo company can be based in."""
 		return self.regions()
 
-	def check_options(self, unregistered: bool, fictitious_id: bool):
-		"""Refuse install options that do not apply to the country."""
+	def check_options(self, unregistered: bool):
+		"""Refuse install options that do not apply to the country (DEC-35, DEC-36)."""
+		from erpnext_demo_gen.service import DemoDataError
+
+		if unregistered:
+			raise DemoDataError(f"--unregistered is not supported yet for {self.country}")
 
 	def validate_pack(self, pack: dict, check):
 		"""Country-specific pack checks; check(ok, path, message) records an error."""
@@ -184,10 +187,25 @@ class Locale:
 		"""verify's tax checks for a run in this country (a list of verify.Check)."""
 		return []
 
-	def check_wizard_company(self, company: str, params: dict, home_region: str | None, unregistered: bool, fictitious_id: bool):
+	def company_tax_id(self, company: str) -> str | None:
+		"""Where the company's own tax ID is recorded (a description), or None without one."""
+		import frappe
+
+		return "Company Tax ID" if frappe.db.get_value("Company", company, "tax_id") else None
+
+	def check_wizard_company(self, company: str, params: dict, home_region: str | None, unregistered: bool):
 		"""Validate installing into the user's own company and settle params (home
-		region, fictitious tax ID); raise DemoDataError when it cannot work."""
-		raise NotImplementedError
+		region); raise DemoDataError when it cannot work. A company with a tax ID is
+		refused in every country: the demo never issues invoices under a real one (DEC-35)."""
+		from erpnext_demo_gen.service import DemoDataError
+
+		where = self.company_tax_id(company)
+		if where:
+			raise DemoDataError(
+				f"{company} has a tax ID ({where}); DemoGen never uses a real one. "
+				"Install without --use-wizard-company to get a new demo company."
+			)
+		params["home_state"] = home_region or params["home_state"]
 
 
 _LOCALES: dict[str, Locale] = {}

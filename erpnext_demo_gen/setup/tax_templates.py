@@ -51,7 +51,7 @@ def no_itc_template(place: str, abbr: str) -> str:
 
 
 def ensure_no_itc_templates(run, company: str, abbr: str):
-	"""Purchase templates for a company not registered for GST (--no-gst, F-38).
+	"""Purchase templates for a company not registered for GST (--unregistered, F-38).
 
 	A registered supplier still charges GST, but an unregistered buyer cannot claim
 	it back, so it belongs in the cost of the goods. Neither ERPNext nor

@@ -92,6 +92,9 @@ jobs:
       - name: Smoke test, electrical_distributor small
         working-directory: ${{ env.BENCH }}
         run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN electrical_distributor small 1
+      - name: Smoke test, furniture_store small in the wizard company (made-up GSTIN address)
+        working-directory: ${{ env.BENCH }}
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN furniture_store small 1 ci.localhost '"use_wizard_company": True'
       - name: Smoke test, furniture_store_us small (US site)
         working-directory: ${{ env.BENCH }}
         run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" US furniture_store small 1 ci-us.localhost

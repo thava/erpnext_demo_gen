@@ -490,14 +490,15 @@ class USLocale(Locale):
 	def home_regions(self) -> list[str]:
 		return ["Texas"]  # single-state scope (design 5.14)
 
-	def check_options(self, unregistered: bool, fictitious_id: bool):
+	def check_options(self, unregistered: bool):
 		from erpnext_demo_gen.service import DemoDataError
 
-		if unregistered or fictitious_id:
-			raise DemoDataError("--no-gst and --fictitious-gstin are for India packs")
-
-	def check_wizard_company(self, company: str, params: dict, home_region: str | None, unregistered: bool, fictitious_id: bool):
-		params["home_state"] = home_region or "Texas"
+		if unregistered:
+			raise DemoDataError(
+				"--unregistered does not apply to the US demo: a Texas business selling taxable items "
+				"needs a sales tax permit, with no small-business threshold (only occasional sales by "
+				"individuals are exempt)"
+			)
 
 	def validate_pack(self, pack: dict, check):
 		state = (pack.get("company") or {}).get("home_state")

@@ -69,6 +69,12 @@ def snapshot() -> dict:
 	return counts
 
 
+def made_up_gstin_address(company: str) -> str | None:
+	return frappe.db.get_value(
+		"Address", {"address_title": f"{company} (demo, fictitious GSTIN)", "gstin": ["is", "set"]}, "name"
+	)
+
+
 def run(
 	country: str | None = None,
 	pack: str | None = None,
@@ -77,8 +83,7 @@ def run(
 	end_date: str | None = None,
 	use_wizard_company: bool = False,
 	registry_only: bool = False,
-	no_gst: bool = False,
-	fictitious_gstin: bool = False,
+	unregistered: bool = False,
 ):
 	from erpnext_demo_gen import service
 
@@ -92,12 +97,15 @@ def run(
 		end_date,
 		use_wizard_company=use_wizard_company,
 		force=True,
-		no_gst=no_gst,
-		fictitious_gstin=fictitious_gstin,
+		unregistered=unregistered,
 		country=country,
 	)
 	_, checks = service.verify(run_doc.name)
 	failed = [c for c in checks if not c.ok]
+	if run_doc.params.get("fictitious_gstin"):  # India wizard mode: the made-up GSTIN address (DEC-35)
+		made_up = made_up_gstin_address(run_doc.doc.company)
+		print(f"  {'ok  ' if made_up else 'FAIL'} made-up GSTIN address: {made_up or 'missing'}")
+		failed += [] if made_up else ["made-up GSTIN address"]
 	for c in checks:
 		print(f"  {'ok  ' if c.ok else 'FAIL'} {c.name}: {c.detail}")
 

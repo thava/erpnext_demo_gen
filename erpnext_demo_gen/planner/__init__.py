@@ -57,7 +57,7 @@ class PlanContext:
 	home_state: str
 	start_date: date
 	end_date: date
-	sales_tax: bool = True  # False for a company not registered for sales tax (India: --no-gst)
+	sales_tax: bool = True  # False for a company not registered for sales tax (--unregistered)
 
 	@property
 	def size(self) -> dict:
