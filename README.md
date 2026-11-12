@@ -339,27 +339,42 @@ bench --site demo.localhost demo-gen install --country IN --use-wizard-company -
 
 ### Keep what you added to the demo company
 
-By default, uninstall removes the demo company with ERPNext's Transaction Deletion
-Record. That deletes every transaction in the company, including any you created
-yourself while exploring, and then the company.
+Uninstall can remove a demo company in two ways.
 
-`--registry-only` removes only what the demo created instead:
+**Default: faster, and removes everything in the demo company.**
+
+```bash
+bench --site demo.localhost demo-gen uninstall
+```
+
+- Deletes every transaction in the demo company with ERPNext's Transaction Deletion
+  Record, including transactions you created yourself while exploring.
+- Then deletes the demo's own customers, suppliers, items, accounts and other records,
+  and the company.
+- Takes seconds to a few minutes: about 20 seconds for medium, about 2 minutes for large.
+- Needs the Redis queue (`bench start`), as the Transaction Deletion Record does.
+
+**`--registry-only`: slower, and keeps what you created.**
 
 ```bash
 bench --site demo.localhost demo-gen uninstall --registry-only
-# Removes the demo's own documents one by one, newest first, from its record of
-# what it created (the Demo Data Record list).
-# Your own documents in the demo company stay. So does the company, and any
-# customer, item or account your documents refer to; uninstall lists what it kept.
 ```
 
-- It is slower than the default: each document is deleted on its own, with its ledger
-  rows, as the Transaction Deletion Record does. Nothing is cancelled, so no reversal
-  entries are made.
-- A demo document your own documents refer to (say, an invoice you recorded a payment
-  against) is kept and listed too.
-- It does not need the Redis queue, which the Transaction Deletion Record does.
-- This is the same removal that `--use-wizard-company` runs always use.
+- Deletes only the demo's own documents, one by one, newest first, from its record of
+  what it created (the Demo Data Record list). Each goes with its ledger rows; nothing is
+  cancelled, so no reversal entries are made.
+- Then deletes the demo's own customers, suppliers, items, accounts and the company, like
+  the default, except those your own documents still refer to. For example, if you
+  recorded a payment against a demo invoice, that invoice, its customer and the company
+  are kept. Uninstall lists everything it kept.
+- If you added nothing, it ends the same as the default, only slower: about 5 minutes for
+  medium, about 80 minutes for large.
+- Does not need the Redis queue.
+
+In both ways, customers, suppliers and items you created yourself are never deleted
+(they don't belong to a company). Accounts, cost centers and warehouses you added inside
+the demo company go when the company goes.
+`--use-wizard-company` runs are always removed the `--registry-only` way.
 
 ## Countries
 
