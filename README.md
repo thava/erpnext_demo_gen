@@ -337,11 +337,29 @@ bench --site demo.localhost demo-gen install --country IN --use-wizard-company -
 # Treats the company as not registered for GST. See "Unregistered businesses" below.
 ```
 
-The one-by-one removal also works for a demo company:
+### Keep what you added to the demo company
+
+By default, uninstall removes the demo company with ERPNext's Transaction Deletion
+Record. That deletes every transaction in the company, including any you created
+yourself while exploring, and then the company.
+
+`--registry-only` removes only what the demo created instead:
 
 ```bash
 bench --site demo.localhost demo-gen uninstall --registry-only
+# Removes the demo's own documents one by one, newest first, from its record of
+# what it created (the Demo Data Record list).
+# Your own documents in the demo company stay. So does the company, and any
+# customer, item or account your documents refer to; uninstall lists what it kept.
 ```
+
+- It is slower than the default: each document is deleted on its own, with its ledger
+  rows, as the Transaction Deletion Record does. Nothing is cancelled, so no reversal
+  entries are made.
+- A demo document your own documents refer to (say, an invoice you recorded a payment
+  against) is kept and listed too.
+- It does not need the Redis queue, which the Transaction Deletion Record does.
+- This is the same removal that `--use-wizard-company` runs always use.
 
 ## Countries
 
