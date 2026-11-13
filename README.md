@@ -68,9 +68,12 @@ It is for System Managers. Whoever finishes the setup wizard also gets a notific
 pointing to it.
 
 ```
-status      the installed demo: company, country, pack, size, data period, documents;
-            Verify (the same checks as demo-gen verify), Uninstall, Open company
-install     country, pack, size (small or medium), home state, company name, seed, end date
+status      the installed demo: company, country, pack, tax registration (with its made-up
+            tax ID), size, data period, documents; Verify (the same checks as demo-gen
+            verify), Uninstall, Open company
+install     country, pack, size (small or medium), registered for tax (on by default; untick
+            for a business not registered: India, UAE, Germany), home state, company name,
+            seed, end date
 progress    "120 of 279 documents written, about 30 s left", with the log;
             Resume install after a stop, as re-running the CLI command does
 history     recent runs; the Demo Data Run list has every run and its events
@@ -79,10 +82,30 @@ help        the command line for each action, and what is command line only
 
 - Install and uninstall run as background jobs on the queue (name=long), one at a time per site.
   The page shows "Waiting for a background worker" when no worker picks the job up.
-- The page asks before installing on a site that already has transactions (the CLI's
-  `--force`), and asks you to type the company name before uninstalling.
-- Command line only: `--size large`, `--use-wizard-company`, `--unregistered`,
-  `uninstall --registry-only` and `--no-backup`, and snapshots.
+- The page asks once before installing when something needs the CLI's `--force` (a site
+  that already has transactions, a business not registered for tax), and asks you to type
+  the company name before uninstalling.
+- Command line only: `--size large`, `--use-wizard-company`, `uninstall --registry-only`
+  and `--no-backup`, and snapshots.
+
+### The demo company's tax registration
+
+A registered demo company gets made-up tax IDs (valid format and check digit), shown where
+ERPNext shows them and summed up in the company's *Registration Details*:
+
+```
+India     GSTIN on the company address and on the Company (GST Category "Registered
+          Regular"); PAN in Registration Details
+UAE       TRN as the Company's Tax ID
+Germany   USt-IdNr. as the Tax ID; a Steuernummer in Registration Details
+US        EIN as the Tax ID; the Texas sales and use tax permit (taxpayer number) in
+          Registration Details, since ERPNext has no field for it
+```
+
+Not registered (`--unregistered`, or the unticked option on the page): no tax ID, and
+Registration Details says so. Installing into your own company (`--use-wizard-company`)
+leaves its Registration Details alone; India's made-up GSTIN is shown on it while the demo
+is installed and removed again on uninstall.
 - After updating the app, restart the workers (`bench restart`; in development, restart
   `bench start`). A worker keeps the code it had loaded, so the page refuses to run a job
   on code older than the app's files and says so.

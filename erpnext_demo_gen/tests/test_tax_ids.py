@@ -22,17 +22,30 @@ def company_fields(tax_id=None, gstin=None, chart=None):
 	return get_value
 
 
-def check(code, tax_id=None, gstin=None, address=None, unregistered=False, home=None):
+def check(code, tax_id=None, gstin=None, address=None, unregistered=False, home=None, ours=()):
 	"""Run the locale's wizard-company check against a company with the given tax IDs."""
 	locale = get_locale(code)
 	chart = getattr(__import__(type(locale).__module__, fromlist=["CHART"]), "CHART", None)
 	params = {"home_state": "Default State", "fictitious_gstin": False}
 	with (
 		patch.object(frappe.db, "get_value", company_fields(tax_id, gstin, chart)),
-		patch.object(frappe, "get_all", lambda *a, **k: [address] if address else []),
+		patch.object(frappe, "get_all", fake_get_all(address, ours)),
 	):
 		locale.check_wizard_company(COMPANY, params, home, unregistered)
 	return params
+
+
+def fake_get_all(address, ours):
+	"""Company addresses with a GSTIN, and the Demo Data Records naming DemoGen's own."""
+
+	def get_all(doctype, *args, **kwargs):
+		if doctype == "Address":
+			return [frappe._dict(name=address, gstin="33AAAAA0000A1Z5")] if address else []
+		if doctype == "Demo Data Record":
+			return [a for a in ours]
+		return []
+
+	return get_all
 
 
 class TestWizardCompanyTaxId(UnitTestCase):
@@ -48,6 +61,9 @@ class TestWizardCompanyTaxId(UnitTestCase):
 			check("IN", address="ADDR-1")
 		with self.assertRaisesRegex(DemoDataError, "has a tax ID"):  # also when unregistered
 			check("IN", address="ADDR-1", unregistered=True)
+
+	def test_india_ignores_the_made_up_address_of_a_run_being_resumed(self):
+		self.assertTrue(check("IN", address="ADDR-DEMO", ours=("ADDR-DEMO",))["fictitious_gstin"])
 
 	def test_india_without_gstin_gets_a_made_up_one_unless_unregistered(self):
 		self.assertTrue(check("IN")["fictitious_gstin"])

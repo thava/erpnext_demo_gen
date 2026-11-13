@@ -213,7 +213,15 @@ class USLocale(Locale):
 	timezone = "America/Chicago"
 
 	def company_fields(self, params) -> dict:
-		return {"country": "United States", "default_currency": "USD", "chart_of_accounts": "Standard"}
+		"""A made-up EIN as the company's Tax ID (the UAE and German demos get a TRN or an
+		USt-IdNr. the same way)."""
+		rng = random.Random(f"{params.seed}:company-ein")
+		return {
+			"country": "United States",
+			"default_currency": "USD",
+			"chart_of_accounts": "Standard",
+			"tax_id": f"{rng.randint(10, 88):02d}-{rng.randint(0, 9999999):07d}",
+		}
 
 	def wants_company_address(self, params) -> bool:
 		return True
@@ -490,14 +498,26 @@ class USLocale(Locale):
 	def home_regions(self) -> list[str]:
 		return ["Texas"]  # single-state scope (design 5.14)
 
+	def registration_lines(self, run, company: str) -> list[str]:
+		"""EIN (the Tax ID) and the Texas sales and use tax permit, whose number is the
+		11-digit Texas taxpayer number (no field of its own in ERPNext)."""
+		import frappe
+
+		rng = random.Random(f"{run.params.seed}:company-texas-permit")
+		ein = frappe.db.get_value("Company", company, "tax_id")
+		return [
+			*([f"EIN {ein} (Tax ID)"] if ein else []),
+			f"Texas sales and use tax permit, taxpayer number 3{rng.randint(0, 9999999999):010d}",
+		]
+
 	def check_options(self, unregistered: bool):
 		from erpnext_demo_gen.service import DemoDataError
 
 		if unregistered:
 			raise DemoDataError(
-				"--unregistered does not apply to the US demo: a Texas business selling taxable items "
-				"needs a sales tax permit, with no small-business threshold (only occasional sales by "
-				"individuals are exempt)"
+				"The US demo business is always registered for sales tax (--unregistered does not "
+				"apply): a Texas business selling taxable items needs a sales tax permit, with no "
+				"small-business threshold (only occasional sales by individuals are exempt)"
 			)
 
 	def validate_pack(self, pack: dict, check):

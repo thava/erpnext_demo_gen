@@ -13,6 +13,8 @@ from erpnext_demo_gen.registry import DONE_STATES, Run
 PAGE_SIZES = ("small", "medium")  # large and snapshots stay CLI-only (DEC-33)
 SIZE_NOTES = {"small": (300, "1 min"), "medium": (1200, "5 min")}  # documents, time (README "Sizes")
 STALE_STATUSES = ("Running", "Uninstalling", "Planned")
+# country -> (the tax, the company's tax ID), for the registration option and the run card
+TAX_NAMES = {"IN": ("GST", "GSTIN"), "AE": ("VAT", "TRN"), "DE": ("VAT", "USt-IdNr."), "US": ("sales tax", "EIN")}
 
 
 def has_app_permission() -> bool:
@@ -48,6 +50,8 @@ def get_state() -> dict:
 			home_state=params.get("home_state"),
 			wizard=bool(params.get("use_wizard_company")),
 			registration=params.get("registration", "registered"),
+			tax_id=_tax_id(params.get("country"), r.company),
+			tax_id_name=TAX_NAMES.get(params.get("country") or "", ("tax", "Tax ID"))[1],
 			documents=sum(totals.get(s, 0) for s in (*DONE_STATES, "Reused")),
 			failed=sum(totals.get(s, 0) for s in ("Failed", "Skipped")),
 			company_exists=bool(r.company and frappe.db.exists("Company", r.company)),
@@ -97,6 +101,12 @@ def get_install_options() -> dict:
 				"default_pack": defaults.get(p["country"]),
 				"missing_apps": [a for a in locale.required_apps if a not in installed],
 				"site_problem": service.site_problem(locale, installed),
+				"tax": TAX_NAMES.get(p["country"], ("tax", "tax ID"))[0],
+				"tax_id_name": TAX_NAMES.get(p["country"], ("tax", "tax ID"))[1],
+				"registration_label": _("Registered for Texas sales tax")
+				if p["country"] == "US"
+				else _("Registered for {0} (made-up {1})").format(*TAX_NAMES.get(p["country"], ("tax", "tax ID"))),
+				"unregistered": _unregistered_option(locale),
 				"is_site_country": locale.country == site_country,
 				"packs": [],
 				"home_states": locale.home_regions(),
@@ -124,6 +134,32 @@ def get_install_options() -> dict:
 	return {"countries": sorted(countries.values(), key=lambda c: order.index(c["code"]) if c["code"] in order else 99)}
 
 
+def _unregistered_option(locale) -> dict:
+	"""Whether the page offers "not registered" for the country, and why not."""
+	from erpnext_demo_gen.service import DemoDataError
+
+	try:
+		locale.check_options(True)
+		return {"offered": True, "warning": locale.unregistered_warning}
+	except DemoDataError as e:
+		return {"offered": False, "reason": str(e)}
+
+
+def _tax_id(country: str | None, company: str | None) -> str | None:
+	"""The demo company's (made-up) tax ID: India's GSTIN, otherwise the Company's Tax ID."""
+	if not (company and frappe.db.exists("Company", company)):
+		return None
+	if country == "IN":
+		gstin = frappe.db.get_value("Company", company, "gstin")
+		if gstin:
+			return gstin
+		addresses = frappe.get_all("Dynamic Link", {"link_doctype": "Company", "link_name": company, "parenttype": "Address"}, pluck="parent")
+		return addresses and frappe.db.get_value(
+			"Address", {"name": ["in", addresses], "is_your_company_address": 1, "gstin": ["is", "set"]}, "gstin"
+		) or None
+	return frappe.db.get_value("Company", company, "tax_id") or None
+
+
 def _country_name(code: str | None) -> str | None:
 	from erpnext_demo_gen.locales import get_locale
 
@@ -143,6 +179,7 @@ def start_install(
 	end_date: str | None = None,
 	home_state: str | None = None,
 	company_name: str | None = None,
+	unregistered: int = 0,
 	force: int = 0,
 ) -> dict:
 	"""Check the install as the CLI would, then queue it. A refusal the user may override
@@ -159,6 +196,7 @@ def start_install(
 		end_date=end_date or None,
 		home_state=home_state or None,
 		company=(company_name or "").strip() or None,
+		unregistered=bool(int(unregistered or 0)),
 		force=bool(int(force or 0)),
 	)
 	confirm = _dry_run(options)
@@ -221,20 +259,32 @@ def verify(run: str | None = None) -> dict:
 
 
 def _dry_run(options: dict) -> dict | None:
-	"""The CLI's checks without writing anything; None when the install can be queued."""
+	"""The CLI's checks without writing anything; None when the install can be queued.
+
+	Every refusal the user may override (the CLI's --force) is collected, so the page asks
+	once about all of them: e.g. a site in use and the unregistered turnover warning.
+	"""
 	from erpnext_demo_gen import service
 	from erpnext_demo_gen.locales import get_locale
 	from erpnext_demo_gen.packs import PackNotFound, find_pack, load_pack
 
-	force = options["force"]
+	reasons, questions = [], []
+
+	def ask(check):
+		try:
+			return check()
+		except service.NeedsForce as e:
+			reasons.append(e.reason)
+			questions.append(e.question)
+
 	try:
 		try:
 			pack_id = find_pack(options["country"], options["pack"])
 		except PackNotFound as e:
 			raise service.DemoDataError(str(e)) from e
 		locale = get_locale(load_pack(pack_id))
-		service.preflight(force, locale)
-		_, params = service.resolve_params(
+		ask(lambda: service.preflight(False, locale))
+		_pack, params = service.resolve_params(
 			pack_id,
 			options["size"],
 			options["seed"],
@@ -242,14 +292,18 @@ def _dry_run(options: dict) -> dict | None:
 			options["home_state"],
 			options["company"],
 			False,
+			options["unregistered"],
 		)
-		service.site_in_use(params, force, log=lambda *_: None)
+		ask(lambda: service.site_in_use(params, False, log=lambda *_: None))
 		service.find_resumable(params)
-	except service.NeedsForce as e:
-		return {"confirm": e.reason, "question": e.question}
+		if options["unregistered"]:
+			reasons.append(f"Not registered: {locale.unregistered_warning}.")
+			questions.append(_("Install it unregistered anyway?"))
 	except service.DemoDataError as e:
 		frappe.throw(str(e), title=_("Cannot install"))
-	return None
+	if not reasons or options["force"]:  # force: the user has confirmed these
+		return None
+	return {"confirm": "\n\n".join(reasons), "question": questions[-1] if len(questions) == 1 else _("Install anyway?")}
 
 
 # ---------------------------------------------------------------- setup wizard

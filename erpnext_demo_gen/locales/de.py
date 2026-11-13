@@ -397,6 +397,18 @@ class DELocale(Locale):
 	def region_choices(self) -> str:
 		return ", ".join(f"{code} ({name})" for code, name in STATE_CODES.items())
 
+	def registration_lines(self, run, company: str) -> list[str]:
+		"""USt-IdNr. (the Tax ID) and a Steuernummer in Bavaria's format (FFF/BBB/UUUUP);
+		a Kleinunternehmer has the Steuernummer only."""
+		import frappe
+
+		rng = random.Random(f"{run.params.seed}:company-steuernummer")
+		steuernummer = f"{rng.randint(100, 199)}/{rng.randint(100, 999)}/{rng.randint(10000, 99999)}"
+		if run.params.get("registration") == "unregistered":
+			return ["Kleinunternehmer (§ 19 UStG): no USt-IdNr., no VAT on invoices", f"Steuernummer {steuernummer}"]
+		vat_id = frappe.db.get_value("Company", company, "tax_id")
+		return [f"USt-IdNr. {vat_id} (Tax ID)", f"Steuernummer {steuernummer}"] if vat_id else []
+
 	def check_wizard_company(self, company: str, params: dict, home_region: str | None, unregistered: bool):
 		import frappe
 

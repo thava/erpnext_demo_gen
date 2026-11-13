@@ -310,6 +310,14 @@ class AELocale(Locale):
 		"like it would have to register"
 	)
 
+	def registration_lines(self, run, company: str) -> list[str]:
+		import frappe
+
+		if run.params.get("registration") == "unregistered":
+			return ["Not registered for VAT (no TRN)"]
+		trn = frappe.db.get_value("Company", company, "tax_id")
+		return [f"TRN {trn} (Tax ID), registered for VAT"] if trn else []
+
 	def check_options(self, unregistered: bool):
 		"""--unregistered is supported (DEC-36)."""
 

@@ -187,7 +187,18 @@ class DemoGenPage {
 				],
 				[__("Installed"), run.finished_at && run.status === "Completed" ? frappe.datetime.str_to_user(run.finished_at) : ""],
 			];
-			if (run.registration === "unregistered") facts.splice(3, 0, [__("Tax"), __("not registered (CLI --unregistered)")]);
+			facts.splice(
+				3,
+				0,
+				[
+					__("Tax registration"),
+					run.registration === "unregistered"
+						? __("not registered (no {0})", [run.tax_id_name])
+						: run.tax_id
+						? __("registered, {0} {1} (made up)", [run.tax_id_name, run.tax_id])
+						: __("registered"),
+				]
+			);
 			const $dl = $card.find(".dg-facts");
 			for (const [k, v] of facts) {
 				if (v === undefined || v === null || v === "") continue;
@@ -348,6 +359,7 @@ class DemoGenPage {
 				},
 				{ fieldname: "pack", fieldtype: "Select", label: __("Pack"), reqd: 1, change: () => this.on_pack() },
 				{ fieldname: "size", fieldtype: "Select", label: __("Size"), reqd: 1, change: () => this.on_size() },
+				{ fieldname: "registered", fieldtype: "Check", label: __("Registered for tax"), default: 1 },
 				{ fieldtype: "Column Break" },
 				{ fieldname: "home_state", fieldtype: "Select", label: __("Home state") },
 				{
@@ -395,6 +407,14 @@ class DemoGenPage {
 		const home = this.form.get_field("home_state");
 		home.df.options = c.home_states;
 		home.refresh();
+		const reg = this.form.get_field("registered");
+		reg.df.label = c.registration_label; // translated on the server
+		reg.df.read_only = c.unregistered.offered ? 0 : 1;
+		reg.df.description = c.unregistered.offered
+			? __("Untick for a business not registered for {0}: no {0} on sales, and the {0} paid on purchases becomes part of the cost.", [c.tax])
+			: c.unregistered.reason;
+		reg.refresh();
+		this.form.set_value("registered", 1);
 		const $w = this.$install_card.find(".dg-warning").empty();
 		if (c.missing_apps.length) {
 			$w.append(
@@ -442,6 +462,8 @@ class DemoGenPage {
 	async install(force = 0) {
 		const values = this.form.get_values();
 		if (!values) return;
+		values.unregistered = values.registered ? 0 : 1;
+		delete values.registered;
 		let r;
 		try {
 			r = await frappe.xcall(DG_API + "start_install", { ...values, force });
@@ -514,7 +536,7 @@ class DemoGenPage {
 			${code("bench --site SITE demo-gen history")}</p>
 			<p><strong>${__("Command line only")}</strong>: ${code("--size large")}, ${code("--use-wizard-company")} ${__(
 				"(into your own company)"
-			)}, ${code("--unregistered")} ${__("(a business not registered for sales tax: IN, AE, DE)")}, ${code(
+			)}, ${code(
 				"uninstall --registry-only"
 			)}, ${code("uninstall --no-backup")}.</p>
 			<p><strong>${__("Snapshots")}</strong>: ${__(

@@ -117,6 +117,11 @@ def setup_company(run: Run, pack: dict) -> str:
 	ensure_price_lists(run, company)
 	locale.setup_taxes(run, company, abbr, pack)  # India: no-ITC templates (--unregistered), SEZ switch
 	setup_banking(run, company, abbr, pack)
+	if not params.use_wizard_company:  # the user's own company keeps its own text
+		lines = locale.registration_lines(run, company)
+		if lines:
+			lines.append("Made up for this demo by DemoGen; not real registrations.")
+			frappe.db.set_value("Company", company, "registration_details", "\n".join(lines))
 
 	set_defaults(run, company)
 	return company

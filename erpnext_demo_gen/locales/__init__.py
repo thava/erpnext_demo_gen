@@ -122,6 +122,14 @@ class Locale:
 	def fiscal_year_end(self, fy_start):
 		raise NotImplementedError
 
+	def registration_lines(self, run, company: str) -> list[str]:
+		"""The demo company's (made-up) registrations, one per line, for its Registration
+		Details; tax IDs without a field of their own go here too."""
+		import frappe
+
+		tax_id = frappe.db.get_value("Company", company, "tax_id")
+		return [f"Tax ID {tax_id}"] if tax_id else []
+
 	def setup_taxes(self, run, company: str, abbr: str, pack: dict):
 		"""Tax set-up beyond what ERPNext and the country's app create with the company."""
 

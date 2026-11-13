@@ -55,6 +55,7 @@ def uninstall_run(run: Run, log=print, registry_only: bool = False, no_backup: b
 
 				kept_transactions = remove_transactions(run, log)
 			restore_banking(run, company)
+			restore_company_fields(run, company)
 			restore_gst_settings(run)
 			log("Deleting the demo's customers, suppliers, items and other setup records...")
 			skipped = [
@@ -97,6 +98,14 @@ def restore_defaults(run: Run, company: str):
 			new_default = frappe.db.get_value("Company", {"name": ["!=", company]})
 	set_default_company(new_default)
 	frappe.db.commit()
+
+
+def restore_company_fields(run: Run, company: str):
+	"""Put back Company fields setup changed in a company that stays (India: GSTIN, GST Category)."""
+	before = run.params.get("company_fields_before") or {}
+	if before and company and frappe.db.exists("Company", company):
+		frappe.db.set_value("Company", company, before)
+		frappe.db.commit()
 
 
 def restore_banking(run: Run, company: str):

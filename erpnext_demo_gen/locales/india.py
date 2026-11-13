@@ -173,7 +173,36 @@ class IndiaLocale(Locale):
 
 		if run.params.get("registration") == "unregistered":
 			ensure_no_itc_templates(run, company)
+		else:
+			self._show_registration(run, company)
 		self._enable_sez(run, pack)
+
+	def registration_lines(self, run, company: str) -> list[str]:
+		import frappe
+
+		if run.params.get("registration") == "unregistered":
+			return ["Not registered for GST (no GSTIN)"]
+		gstin = frappe.db.get_value("Company", company, "gstin")
+		return [f"GSTIN {gstin} (on the company address)", f"PAN {gstin[2:12]}"] if gstin else []
+
+	def _show_registration(self, run, company: str):
+		"""india_compliance reads the GSTIN from the company address, but the Company record
+		itself would still say GST Category "Unregistered" with no GSTIN. Show the
+		registration there too; a company that stays (wizard mode) gets its values back
+		on uninstall."""
+		import frappe
+
+		gstin = frappe.db.get_value(
+			"Address",
+			{"name": ["in", frappe.get_all("Dynamic Link", {"link_doctype": "Company", "link_name": company, "parenttype": "Address"}, pluck="parent") or [""]],
+			 "is_your_company_address": 1, "gstin": ["is", "set"]},
+			"gstin",
+		)
+		if not gstin:
+			return
+		if "company_fields_before" not in run.params:
+			run.update_params(company_fields_before=frappe.db.get_value("Company", company, ["gstin", "gst_category"], as_dict=True))
+		frappe.db.set_value("Company", company, {"gstin": gstin, "gst_category": "Registered Regular"})
 
 	def _enable_sez(self, run, pack: dict):
 		"""SEZ customers need GST Settings' "Enable SEZ / Overseas Transactions", as a real
@@ -319,8 +348,6 @@ class IndiaLocale(Locale):
 
 		if super().company_tax_id(company):
 			return "Company Tax ID"
-		if frappe.db.get_value("Company", company, "gstin"):
-			return "Company GSTIN"
 		addresses = frappe.get_all(
 			"Address",
 			filters=[
@@ -329,10 +356,21 @@ class IndiaLocale(Locale):
 				["is_your_company_address", "=", 1],
 				["gstin", "is", "set"],
 			],
-			pluck="name",
-			limit=1,
+			fields=["name", "gstin"],
 		)
-		return f"GSTIN on address {addresses[0]}" if addresses else None
+		# the made-up GSTIN address of an unfinished DemoGen run (resuming) is not a real tax ID
+		ours = set(
+			frappe.get_all(
+				"Demo Data Record",
+				filters={"ref_doctype": "Address", "ref_name": ["in", [a.name for a in addresses] or [""]]},
+				pluck="ref_name",
+			)
+		)
+		real = [a for a in addresses if a.name not in ours]
+		gstin = frappe.db.get_value("Company", company, "gstin")
+		if gstin and gstin not in {a.gstin for a in addresses if a.name in ours}:
+			return "Company GSTIN"
+		return f"GSTIN on address {real[0].name}" if real else None
 
 	def check_wizard_company(self, company: str, params: dict, home_region: str | None, unregistered: bool):
 		"""A company without a GSTIN is unregistered for india_compliance, which then charges
