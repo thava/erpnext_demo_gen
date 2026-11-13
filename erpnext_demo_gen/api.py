@@ -105,7 +105,7 @@ def get_install_options() -> dict:
 				"tax_id_name": TAX_NAMES.get(p["country"], ("tax", "tax ID"))[1],
 				"registration_label": _("Registered for Texas sales tax")
 				if p["country"] == "US"
-				else _("Registered for {0} (made-up {1})").format(*TAX_NAMES.get(p["country"], ("tax", "tax ID"))),
+				else _("Registered for {0} (imaginary {1})").format(*TAX_NAMES.get(p["country"], ("tax", "tax ID"))),
 				"unregistered": _unregistered_option(locale),
 				"is_site_country": locale.country == site_country,
 				"packs": [],

@@ -195,7 +195,7 @@ class DemoGenPage {
 					run.registration === "unregistered"
 						? __("not registered (no {0})", [run.tax_id_name])
 						: run.tax_id
-						? __("registered, {0} {1} (made up)", [run.tax_id_name, run.tax_id])
+						? __("registered, {0} {1} (imaginary)", [run.tax_id_name, run.tax_id])
 						: __("registered"),
 				]
 			);

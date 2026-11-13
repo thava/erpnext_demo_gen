@@ -68,7 +68,7 @@ It is for System Managers. Whoever finishes the setup wizard also gets a notific
 pointing to it.
 
 ```
-status      the installed demo: company, country, pack, tax registration (with its made-up
+status      the installed demo: company, country, pack, tax registration (with its imaginary
             tax ID), size, data period, documents; Verify (the same checks as demo-gen
             verify), Uninstall, Open company
 install     country, pack, size (small or medium), registered for tax (on by default; untick
@@ -90,7 +90,7 @@ help        the command line for each action, and what is command line only
 
 ### The demo company's tax registration
 
-A registered demo company gets made-up tax IDs (valid format and check digit), shown where
+A registered demo company gets imaginary tax IDs (valid format and check digit), shown where
 ERPNext shows them and summed up in the company's *Registration Details*:
 
 ```
@@ -104,7 +104,7 @@ US        EIN as the Tax ID; the Texas sales and use tax permit (taxpayer number
 
 Not registered (`--unregistered`, or the unticked option on the page): no tax ID, and
 Registration Details says so. Installing into your own company (`--use-wizard-company`)
-leaves its Registration Details alone; India's made-up GSTIN is shown on it while the demo
+leaves its Registration Details alone; India's imaginary GSTIN is shown on it while the demo
 is installed and removed again on uninstall.
 - After updating the app, restart the workers (`bench restart`; in development, restart
   `bench start`). A worker keeps the code it had loaded, so the page refuses to run a job
@@ -389,12 +389,12 @@ bench --site demo.localhost demo-gen install --country AE --use-wizard-company
 
 - Tax ID means the company's *Tax ID* field in every country. In India also its GSTIN:
   on the company, or on one of its own addresses.
-- A new demo company always gets a made-up tax ID (valid format and check digit).
+- A new demo company always gets an imaginary tax ID (valid format and check digit).
 
 Country notes:
 
 - Germany: the company must use the SKR04 chart (*SKR04 mit Kontonummern*).
-- India: GST needs a GSTIN, so the demo adds a company address with a made-up one,
+- India: GST needs a GSTIN, so the demo adds a company address with an imaginary one,
   titled "(demo, fictitious GSTIN)". Uninstall removes it. To leave GST out instead:
 
 ```bash

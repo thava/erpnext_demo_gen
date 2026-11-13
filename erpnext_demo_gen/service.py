@@ -262,7 +262,7 @@ def install(
 		warnings.append(locale.unregistered_warning)
 	if params["fictitious_gstin"]:
 		log(
-			f"Note: adding a company address with a made-up GSTIN to {params['company']} (state "
+			f"Note: adding a company address with an imaginary GSTIN to {params['company']} (state "
 			f"{params['home_state']}); it is fictitious, for the demo only, and removed on uninstall"
 		)
 	for w in warnings:
