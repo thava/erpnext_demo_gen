@@ -11,6 +11,12 @@ What a VAT-registered UAE trading business looks like in ERPNext's own UAE set-u
     settings    UAE VAT Settings lists the company's VAT account (reverse charge and
                 the VAT 201 report use it)
 
+Unregistered (--unregistered; registration is mandatory above AED 375,000 of taxable
+supplies in 12 months): sales carry no VAT and the company has no TRN; VAT paid on
+purchases cannot be recovered, so it goes to a "VAT Not Recoverable" expense account
+through "Valuation and Total" rows (in the cost of stock items, DEC-37); VAT Emirate and
+the VAT 201 report do not apply.
+
 Out of scope for the demo: imports and reverse charge, zero-rated exports, tourist
 refunds, excise, designated zones. General information, not tax advice.
 """
@@ -139,12 +145,10 @@ class AELocale(Locale):
 
 	def company_fields(self, params) -> dict:
 		rng = random.Random(f"{params.seed}:company-trn")
-		return {
-			"country": "United Arab Emirates",
-			"default_currency": "AED",
-			"chart_of_accounts": "Standard",
-			"tax_id": f"100{rng.randint(0, 10**12 - 1):012d}",  # the company's TRN
-		}
+		fields = {"country": "United Arab Emirates", "default_currency": "AED", "chart_of_accounts": "Standard"}
+		if params.get("registration") != "unregistered":
+			fields["tax_id"] = f"100{rng.randint(0, 10**12 - 1):012d}"  # the company's TRN
+		return fields
 
 	def wants_company_address(self, params) -> bool:
 		return True
@@ -169,8 +173,25 @@ class AELocale(Locale):
 
 	def setup_taxes(self, run, company: str, abbr: str, pack: dict):
 		"""ERPNext creates "UAE VAT 5%" templates (and excise and zero-rate ones) with the
-		company. Make the 5% ones the defaults and list their account in UAE VAT Settings."""
+		company. Make the 5% ones the defaults and list their account in UAE VAT Settings.
+		Unregistered: none of that; the not-recoverable account and templates instead."""
 		import frappe
+
+		if run.params.get("registration") == "unregistered":
+			from erpnext_demo_gen.setup.tax_templates import ensure_not_recoverable
+
+			ensure_not_recoverable(
+				run,
+				company,
+				account_name="VAT Not Recoverable",
+				parents=("Indirect Expenses",),
+				purchase_title="UAE VAT 5% (not recoverable)",
+				description="VAT paid, not recoverable (not registered for VAT)",
+				default_rate=5,
+				no_tax_title="No VAT (not registered)",
+			)
+			frappe.db.commit()
+			return
 
 		templates = {}
 		for doctype in ("Sales Taxes and Charges Template", "Purchase Taxes and Charges Template"):
@@ -215,7 +236,11 @@ class AELocale(Locale):
 		return {
 			"territory": "United Arab Emirates" if frappe.db.exists("Territory", "United Arab Emirates") else get_root_of("Territory"),
 			"tax_templates": {},
-			"locale_data": {"home_emirate": run.params.home_state, **(run.params.get("ae_vat") or {})},
+			"locale_data": {
+				"home_emirate": run.params.home_state,
+				**(run.params.get("ae_vat") or {}),
+				"not_recoverable": run.params.get("not_recoverable") or {},
+			},
 		}
 
 	def party_fields(self, p, w) -> dict:
@@ -239,13 +264,26 @@ class AELocale(Locale):
 		return {}
 
 	def purchase_taxes(self, doc, w):
-		doc.taxes_and_charges = w.locale_data["purchase"]
+		if w.tax_registered:
+			doc.taxes_and_charges = w.locale_data["purchase"]
+			return
+		import frappe
+
+		# unregistered: a registered supplier's VAT is a cost; an unregistered one charges none
+		nr = w.locale_data["not_recoverable"]
+		registered = frappe.db.get_value("Supplier", doc.supplier, "tax_id")
+		doc.taxes_and_charges = nr["purchase"] if registered else nr["no_tax_purchase"]
 
 	def sales_taxes(self, doc, w):
-		doc.taxes_and_charges = w.locale_data["sales"]
+		if w.tax_registered:
+			doc.taxes_and_charges = w.locale_data["sales"]
+		else:  # an empty template, so ERPNext does not apply the company's default VAT one
+			doc.taxes_and_charges = w.locale_data["not_recoverable"]["no_tax_sales"]
 
 	def finish_purchase_invoice(self, doc, w) -> bool:
 		"""Record the bill's VAT as recoverable (VAT 201 box 9); True when changed."""
+		if not w.tax_registered:
+			return False
 		if doc.meta.has_field("recoverable_standard_rated_expenses") and doc.total_taxes_and_charges:
 			doc.recoverable_standard_rated_expenses = doc.total_taxes_and_charges
 			return True
@@ -253,6 +291,15 @@ class AELocale(Locale):
 
 	# ---------------------------------------------------------- install parameters
 	required_apps = ("erpnext",)
+	unregistered_warning = (
+		"generating without VAT: the company is not registered, so sales carry no VAT and the VAT "
+		"paid on purchases becomes part of their cost. This demo's turnover is above the mandatory "
+		"registration threshold (AED 375,000 of taxable supplies in 12 months), so a real business "
+		"like it would have to register"
+	)
+
+	def check_options(self, unregistered: bool):
+		"""--unregistered is supported (DEC-36)."""
 
 	def resolve_region(self, text: str) -> str | None:
 		value = text.strip()
@@ -282,7 +329,10 @@ class AELocale(Locale):
 	def tax_checks(self, ctx) -> list:
 		"""UAE: every sale carries 5% VAT and its VAT Emirate; every bill records its VAT as
 		recoverable; the UAE VAT 201 report's boxes 1 (output VAT) and 9 (recoverable input
-		VAT) agree with the invoices."""
+		VAT) agree with the invoices. Unregistered: no VAT on sales, purchase VAT not
+		recoverable; VAT 201 does not apply."""
+		if ctx.run.params.get("registration") == "unregistered":
+			return self.unregistered_checks(ctx, "VAT")
 		import frappe
 		from erpnext.regional.report.uae_vat_201.uae_vat_201 import execute as vat_201
 		from frappe.utils import flt

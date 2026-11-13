@@ -13,6 +13,13 @@ set-up (country_wise_tax.json for the "SKR04 mit Kontonummern" chart):
     prices      consumer prices include VAT (Preisangabenverordnung)
     return      the monthly VAT return (UStVA) is output VAT minus input VAT
 
+Kleinunternehmer (--unregistered; § 19 UStG, limits since 2025: previous year's net
+turnover <= EUR 25,000 and current year's <= EUR 100,000): sales carry no VAT, income goes
+to SKR04's "Erlöse aus Kleinunternehmer", and every invoice carries the § 19 note (Terms
+and Conditions); the company has no USt-IdNr. (its Steuernummer is not modelled). VAT paid
+on purchases cannot be deducted: "Valuation and Total" rows on a "Nicht abziehbare
+Vorsteuer" expense account, at each item's rate (in the cost of stock items, DEC-37).
+
 Furniture is 19%; staff coffee is food at 7%; bottled water is 19% (only tap water
 is reduced). Out of scope for the demo: EU and non-EU trade (reverse charge,
 innergemeinschaftlicher Erwerb), Kleinunternehmer suppliers, § 13b construction
@@ -100,6 +107,9 @@ SALES_TEMPLATE = "Lieferung oder sonstige Leistung im Inland"
 PURCHASE_TEMPLATE = "Lieferung aus dem Inland"
 ITEM_TEMPLATES = {"standard": "19 %", "reduced": "7 %"}  # titles of ERPNext's Item Tax Templates
 VAT_CLASSES = tuple(ITEM_TEMPLATES)
+KLEINUNTERNEHMER_INCOME = "Erlöse aus Kleinunternehmer i. S. d. § 19 Abs. 1 UStG"  # SKR04 4185
+KLEINUNTERNEHMER_TERMS = "Kleinunternehmerregelung (§ 19 UStG)"
+KLEINUNTERNEHMER_NOTE = "Gemäß § 19 UStG enthält der ausgewiesene Rechnungsbetrag keine Umsatzsteuer."
 
 
 class DELocale(Locale):
@@ -184,12 +194,10 @@ class DELocale(Locale):
 
 	def company_fields(self, params) -> dict:
 		rng = random.Random(f"{params.seed}:company-vat-id")
-		return {
-			"country": "Germany",
-			"default_currency": "EUR",
-			"chart_of_accounts": CHART,
-			"tax_id": vat_id(rng),  # the company's USt-IdNr.
-		}
+		fields = {"country": "Germany", "default_currency": "EUR", "chart_of_accounts": CHART}
+		if params.get("registration") != "unregistered":
+			fields["tax_id"] = vat_id(rng)  # the company's USt-IdNr.
+		return fields
 
 	def wants_company_address(self, params) -> bool:
 		return True
@@ -214,11 +222,15 @@ class DELocale(Locale):
 	def setup_taxes(self, run, company: str, abbr: str, pack: dict):
 		"""ERPNext creates the SKR04 tax templates with the company. Correct the company
 		defaults it picks wrongly from SKR04 (only while they are still its wrong pick)
-		and remember the templates and VAT accounts."""
+		and remember the templates and VAT accounts. A Kleinunternehmer keeps ERPNext's
+		income pick (4185) and gets the non-deductible set-up and the § 19 note."""
 		import frappe
 
+		unregistered = run.params.get("registration") == "unregistered"
 		fixed = {}
 		for field, (wrong, right) in DEFAULT_FIXES.items():
+			if unregistered and field == "default_income_account":
+				continue
 			current = frappe.db.get_value("Company", company, field)
 			if current and frappe.db.get_value("Account", current, "account_name") != wrong:
 				continue
@@ -250,14 +262,50 @@ class DELocale(Locale):
 				"defaults_fixed": fixed,
 			}
 		)
+		if unregistered:
+			self._setup_kleinunternehmer(run, company)
 		frappe.db.commit()
+
+	def _setup_kleinunternehmer(self, run, company: str):
+		import frappe
+
+		from erpnext_demo_gen.setup.tax_templates import ensure_not_recoverable
+
+		ensure_not_recoverable(
+			run,
+			company,
+			account_name="Nicht abziehbare Vorsteuer (Kleinunternehmer)",
+			parents=("7 - sonstige betriebliche Aufwendungen",),
+			purchase_title="Lieferung aus dem Inland (Vorsteuer nicht abziehbar)",
+			description="Vorsteuer, nicht abziehbar (§ 19 UStG)",
+			default_rate=19,
+			item_templates={cls: (f"{title} (nicht abziehbar)", float(title.split()[0])) for cls, title in ITEM_TEMPLATES.items()},
+			tax_category="Vorsteuer nicht abziehbar",
+			no_tax_title="Kleinunternehmer (keine Umsatzsteuer)",
+		)
+		terms = KLEINUNTERNEHMER_TERMS
+		if not frappe.db.exists("Terms and Conditions", terms):  # one the user already has is used as it is
+			terms = run.ensure(
+				"setup:de:kleinunternehmer-terms",
+				lambda: frappe.get_doc(
+					{"doctype": "Terms and Conditions", "title": KLEINUNTERNEHMER_TERMS, "terms": KLEINUNTERNEHMER_NOTE, "selling": 1, "buying": 0}
+				).insert(ignore_permissions=True),
+			)
+		income = frappe.db.get_value("Account", {"company": company, "account_name": KLEINUNTERNEHMER_INCOME, "is_group": 0})
+		if not income:
+			frappe.throw(f"Account {KLEINUNTERNEHMER_INCOME!r} not found for {company} (needs the {CHART} chart)")
+		run.update_params(kleinunternehmer={"terms": terms, "income_account": income})
 
 	# ---------------------------------------------------------- writing documents
 	def writer_context(self, run, company: str) -> dict:
 		import frappe
 		from frappe.utils.nestedset import get_root_of
 
-		data = run.params.get("de_vat") or {}
+		data = {
+			**(run.params.get("de_vat") or {}),
+			"not_recoverable": run.params.get("not_recoverable") or {},
+			"kleinunternehmer": run.params.get("kleinunternehmer") or {},
+		}
 		return {
 			"territory": "Germany" if frappe.db.exists("Territory", "Germany") else get_root_of("Territory"),
 			"tax_templates": data.get("item_templates") or {},
@@ -282,15 +330,44 @@ class DELocale(Locale):
 		return fields
 
 	def item_fields(self, p, w) -> dict:
-		"""The item's VAT rate comes from its Item Tax Template ("19 %" or "7 %")."""
-		template = w.tax_templates.get(p.get("vat_class") or "standard")
+		"""The item's VAT rate comes from its Item Tax Template ("19 %" or "7 %"). A
+		Kleinunternehmer's items carry only the non-deductible one, under a tax category
+		that only purchases use, so sales lines get no VAT rate."""
+		vat_class = p.get("vat_class") or "standard"
+		if not w.tax_registered:
+			nr = w.locale_data["not_recoverable"]
+			return {"taxes": [{"item_tax_template": nr["items"][vat_class], "tax_category": nr["tax_category"]}]}
+		template = w.tax_templates.get(vat_class)
 		return {"taxes": [{"item_tax_template": template}]} if template else {}
 
+	def item_defaults(self, p, w) -> dict:
+		if w.tax_registered or not p.get("is_sales_item", 1):
+			return {}
+		return {"income_account": w.locale_data["kleinunternehmer"]["income_account"]}
+
 	def purchase_taxes(self, doc, w):
-		self._fill(doc, w.locale_data["purchase"])
+		if w.tax_registered:
+			self._fill(doc, w.locale_data["purchase"])
+			return
+		import frappe
+
+		nr = w.locale_data["not_recoverable"]
+		if frappe.db.get_value("Supplier", doc.supplier, "tax_id"):  # charges VAT we cannot deduct
+			doc.tax_category = nr["tax_category"]  # picks the items' non-deductible rates
+			self._fill(doc, nr["purchase"])
+		else:
+			doc.taxes_and_charges = nr["no_tax_purchase"]
+			doc.set("taxes", [])
 
 	def sales_taxes(self, doc, w):
-		self._fill(doc, w.locale_data["sales"])
+		if w.tax_registered:
+			self._fill(doc, w.locale_data["sales"])
+			return
+		# Kleinunternehmer: no VAT (an empty template stops ERPNext's default) and the § 19 note
+		doc.taxes_and_charges = w.locale_data["not_recoverable"]["no_tax_sales"]
+		doc.set("taxes", [])
+		doc.tc_name = w.locale_data["kleinunternehmer"]["terms"]
+		doc.terms = KLEINUNTERNEHMER_NOTE
 
 	@staticmethod
 	def _fill(doc, template: str):
@@ -304,6 +381,15 @@ class DELocale(Locale):
 
 	# ---------------------------------------------------------- install parameters
 	required_apps = ("erpnext",)
+	unregistered_warning = (
+		"generating a Kleinunternehmer (§ 19 UStG): sales carry no VAT and the VAT paid on purchases "
+		"becomes part of their cost. This demo's turnover is above the limits (net turnover of at "
+		"most EUR 25,000 in the previous year and EUR 100,000 in the current year), so a real business "
+		"like it could not use the scheme"
+	)
+
+	def check_options(self, unregistered: bool):
+		"""--unregistered is supported: a Kleinunternehmer (DEC-36)."""
 
 	def resolve_region(self, text: str) -> str | None:
 		value = text.strip()
@@ -350,7 +436,8 @@ class DELocale(Locale):
 	# ---------------------------------------------------------- verify
 	def tax_checks(self, ctx) -> list:
 		"""Germany: every invoice's VAT matches its items' rates (19% or 7%); the VAT
-		accounts agree with the invoices (output VAT, input VAT: the UStVA totals)."""
+		accounts agree with the invoices (output VAT, input VAT: the UStVA totals).
+		Kleinunternehmer: no VAT on sales and the § 19 note; non-deductible VAT on bills."""
 		import frappe
 		from frappe.utils import flt
 
@@ -381,6 +468,20 @@ class DELocale(Locale):
 			wrong = [n for n in expected if abs(expected[n] - actual[n]) > 0.02 * lines[n] + 0.02]
 			untaxed = [n for n in expected if not actual[n]]
 			return len(expected), wrong, untaxed, sum(actual.values())
+
+		if ctx.run.params.get("registration") == "unregistered":  # Kleinunternehmer; no UStVA
+			count, wrong, _, _ = rate_mismatches("Purchase Invoice")  # unregistered suppliers: rate 0
+			no_note = frappe.db.sql_list(
+				"""select name from `tabSales Invoice` where company=%s and docstatus=1
+				and ifnull(terms, '') not like %s""",
+				(ctx.company, "%§ 19 UStG%"),
+			)
+			return [
+				*self.unregistered_checks(ctx, "VAT"),
+				Check("bills carry non-deductible VAT at their items' rates (19% / 7%)", bool(count) and not wrong,
+					f"{count} bills" + (f"; VAT differs from the item rates: {wrong[:5]}" if wrong else "")),
+				Check("sales invoices carry the § 19 UStG note", not no_note, ", ".join(no_note[:5]) or "all"),
+			]
 
 		checks = []
 		totals = {}

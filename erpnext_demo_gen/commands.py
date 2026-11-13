@@ -60,6 +60,8 @@ def demo_gen():
 	US: a Texas business selling in Texas, USD, sales and use tax.
 	AE: a VAT-registered Dubai business, AED, 5% VAT (ERPNext's UAE VAT 201 report).
 	DE: a Munich GmbH, EUR, SKR04 chart, 19% / 7% VAT (ERPNext's German tax templates).
+	--unregistered --force: no sales tax, purchase tax is a cost (IN; AE below the VAT
+	threshold; DE Kleinunternehmer). Refused for the US.
 	--use-wizard-company needs the default company in that country and currency.
 	"""
 
@@ -113,7 +115,7 @@ def list_packs():
 	"--unregistered",
 	is_flag=True,
 	help="A business not registered for sales tax: none on sales, tax paid on purchases is a cost. "
-	"India only for now; needs --force (the demo's turnover is above the threshold)",
+	"IN, AE and DE (Kleinunternehmer); not US. Needs --force (the demo's turnover is above the threshold)",
 )
 @click.option(
 	"--force",

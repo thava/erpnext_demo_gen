@@ -137,6 +137,7 @@ def item(p, w, pd):
 	defaults = {"company": w.company, "default_warehouse": warehouse}
 	if p.get("expense_account"):  # own-use supplies: expensed when issued (stock) or billed
 		defaults["expense_account"] = _account(w.company, p.expense_account)
+	defaults.update(w.locale.item_defaults(p, w))
 	is_stock = p.get("is_stock", 1)
 	return insert(
 		frappe.get_doc(

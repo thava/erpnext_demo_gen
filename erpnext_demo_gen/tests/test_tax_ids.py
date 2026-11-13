@@ -62,17 +62,17 @@ class TestWizardCompanyTaxId(UnitTestCase):
 
 
 class TestUnregisteredOption(UnitTestCase):
-	def test_india_accepts_it(self):
-		get_locale("IN").check_options(True)
+	def test_india_uae_and_germany_accept_it(self):
+		for code in ("IN", "AE", "DE"):
+			get_locale(code).check_options(True)
 
 	def test_us_refuses_it_with_the_reason(self):
 		with self.assertRaisesRegex(DemoDataError, "sales tax permit"):
 			get_locale("US").check_options(True)
 
-	def test_uae_and_germany_not_supported_yet(self):
-		for code in ("AE", "DE"):
-			with self.assertRaisesRegex(DemoDataError, "not supported yet", msg=code):
-				get_locale(code).check_options(True)
+	def test_every_supporting_locale_warns_about_the_threshold(self):
+		for code in ("IN", "AE", "DE"):
+			self.assertIn("threshold" if code != "DE" else "limits", get_locale(code).unregistered_warning, code)
 
 	def test_registered_is_accepted_everywhere(self):
 		for code in ("IN", "US", "AE", "DE"):

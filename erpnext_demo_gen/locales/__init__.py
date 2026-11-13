@@ -143,6 +143,10 @@ class Locale:
 		"""Item fields for tax (classification code, Item Tax Template rows)."""
 		raise NotImplementedError
 
+	def item_defaults(self, p, w) -> dict:
+		"""Extra Item Default fields for the demo company (e.g. an income account)."""
+		return {}
+
 	def purchase_taxes(self, doc, w):
 		"""Choose the tax template of a purchase order when ERPNext would not."""
 
@@ -186,6 +190,50 @@ class Locale:
 	def tax_checks(self, ctx) -> list:
 		"""verify's tax checks for a run in this country (a list of verify.Check)."""
 		return []
+
+	def unregistered_checks(self, ctx, tax: str) -> list:
+		"""verify for --unregistered (DEC-36, DEC-37): sales carry no tax; purchases from
+		registered suppliers (with a tax ID) carry tax only on the not-recoverable account,
+		those from unregistered suppliers none. In wizard mode only the run's documents count."""
+		import frappe
+
+		from erpnext_demo_gen.verify import Check
+
+		account = (ctx.run.params.get("not_recoverable") or {}).get("account")
+
+		def ours(names):
+			if not names or not ctx.run.params.get("use_wizard_company"):
+				return names
+			mine = set(frappe.get_all("Demo Data Record", filters={"run": ctx.run.name, "ref_name": ["in", names]}, pluck="ref_name"))
+			return [n for n in names if n in mine]
+
+		taxed_sales = []
+		for doctype in ("Quotation", "Sales Order", "Sales Invoice"):
+			taxed_sales += frappe.db.sql_list(
+				f"""select d.name from `tab{doctype}` d where d.company=%s and d.docstatus=1
+				and (d.total_taxes_and_charges != 0 or exists (select 1 from `tabSales Taxes and Charges` t where t.parent=d.name))""",
+				ctx.company,
+			)
+		wrong_bills = []
+		for doctype in ("Purchase Order", "Purchase Invoice"):
+			wrong_bills += frappe.db.sql_list(
+				f"""select d.name from `tab{doctype}` d join tabSupplier s on s.name=d.supplier
+				where d.company=%(company)s and d.docstatus=1 and (
+					(ifnull(s.tax_id, '') != '' and (
+						not exists (select 1 from `tabPurchase Taxes and Charges` t where t.parent=d.name and t.account_head=%(account)s)
+						or exists (select 1 from `tabPurchase Taxes and Charges` t where t.parent=d.name and t.account_head!=%(account)s)))
+					or (ifnull(s.tax_id, '') = '' and d.total_taxes_and_charges != 0))""",
+				{"company": ctx.company, "account": account},
+			)
+		taxed_sales, wrong_bills = ours(taxed_sales), ours(wrong_bills)
+		return [
+			Check(f"sales carry no {tax} (unregistered)", not taxed_sales, ", ".join(taxed_sales[:5]) or "none"),
+			Check(
+				f"purchase {tax} goes to {account or 'the not-recoverable account'} (unregistered)",
+				bool(account) and not wrong_bills,
+				", ".join(wrong_bills[:5]) or "all as expected",
+			),
+		]
 
 	def company_tax_id(self, company: str) -> str | None:
 		"""Where the company's own tax ID is recorded (a description), or None without one."""

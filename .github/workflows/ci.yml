@@ -104,9 +104,15 @@ jobs:
       - name: Smoke test, furniture_store (AE) small (UAE site)
         working-directory: ${{ env.BENCH }}
         run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" AE furniture_store small 1 ci-ae.localhost
+      - name: Smoke test, furniture_store (AE) small, unregistered (UAE site)
+        working-directory: ${{ env.BENCH }}
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" AE furniture_store small 1 ci-ae.localhost '"unregistered": True'
       - name: Smoke test, furniture_store (DE) small (Germany site)
         working-directory: ${{ env.BENCH }}
         run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" DE furniture_store small 1 ci-de.localhost
+      - name: Smoke test, furniture_store (DE) small, Kleinunternehmer (Germany site)
+        working-directory: ${{ env.BENCH }}
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" DE furniture_store small 1 ci-de.localhost '"unregistered": True'
 
   plan:
     name: Plan snapshots

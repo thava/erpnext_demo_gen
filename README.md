@@ -553,6 +553,31 @@ banking         Emirates NBD and Mashreq accounts with valid-format IBANs; wire
 - Not covered: imports and reverse charge, zero-rated exports, tourist refunds,
   excise, designated zones.
 
+#### Unregistered (no VAT)
+
+```bash
+bench --site demo.localhost demo-gen install --country AE --unregistered --force
+```
+
+A business below the registration threshold (AED 375,000 of taxable supplies in 12
+months; voluntary from AED 187,500) does not charge VAT and has no TRN. VAT that its
+suppliers charge cannot be recovered. The demo sets it up the way India's unregistered
+case does (see [Unregistered businesses](#unregistered-businesses-no-gst)):
+
+```
+Account             VAT Not Recoverable  (Expense Account, under Indirect Expenses)
+Purchase template   UAE VAT 5% (not recoverable): one "Valuation and Total" row, 5%,
+                    on that account; used for suppliers with a TRN
+                    stock items: VAT in their cost; non-stock items: an expense
+Empty templates     "No VAT (not registered)" for sales and for suppliers without a TRN,
+                    so ERPNext does not apply the default "UAE VAT 5%"
+Not used            UAE VAT Settings, VAT Emirate, recoverable expenses, VAT 201
+```
+
+- `--force` is needed: the demo's turnover is above the threshold, and install warns.
+- `verify` checks that sales carry no VAT, and that purchase VAT is only on
+  VAT Not Recoverable. The VAT 201 checks are skipped.
+
 ### Germany
 
 ```bash
@@ -587,6 +612,40 @@ banking         Stadtsparkasse München and Deutsche Bank accounts with valid-fo
 - `--use-wizard-company` needs a company on the SKR04 chart.
 - Not covered: EU and non-EU trade (reverse charge), Kleinunternehmer suppliers,
   DATEV export, e-invoicing (XRechnung, ZUGFeRD).
+
+#### Kleinunternehmer (no VAT)
+
+```bash
+bench --site demo.localhost demo-gen install --country DE --unregistered --force
+```
+
+A Kleinunternehmer (§ 19 UStG) charges no VAT and cannot deduct input VAT. Since 2025
+the limits are net turnover of at most EUR 25,000 in the previous year and EUR 100,000
+in the current year. The demo sets it up like this:
+
+```
+Sales               no VAT: an empty template "Kleinunternehmer (keine Umsatzsteuer)"
+                    stops ERPNext's default; income to 4185 "Erlöse aus Kleinunternehmer
+                    i. S. d. § 19 Abs. 1 UStG" (the demo's items default to it)
+Invoice note        Terms and Conditions "Kleinunternehmerregelung (§ 19 UStG)" on every
+                    quotation, order and invoice: "Gemäß § 19 UStG enthält der
+                    ausgewiesene Rechnungsbetrag keine Umsatzsteuer."
+Account             Nicht abziehbare Vorsteuer (Kleinunternehmer)  (Expense Account, under
+                    7 - sonstige betriebliche Aufwendungen)
+Purchase template   Lieferung aus dem Inland (Vorsteuer nicht abziehbar): one "Valuation
+                    and Total" row on that account; stock items: VAT in their cost
+                    (§ 9b EStG); non-stock items: an expense
+Item Tax Templates  "19 % (nicht abziehbar)", "7 % (nicht abziehbar)", on each item under
+                    the Tax Category "Vorsteuer nicht abziehbar"
+Tax Category        set on purchases from suppliers with a USt-IdNr., so only purchases
+                    pick the item's rate; sales lines get none, and "Automatically add
+                    Taxes and Charges from Item Tax Template" can stay on
+Company             no USt-IdNr. (a Kleinunternehmer still has a Steuernummer; not modelled)
+```
+
+- `--force` is needed: the demo's turnover is far above the limits, and install warns.
+- `verify` checks that sales carry no VAT and carry the note, and that bills carry
+  non-deductible VAT at each item's rate (19 % / 7 %). The UStVA checks are skipped.
 
 ## Own-use supplies
 

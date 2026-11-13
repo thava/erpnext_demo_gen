@@ -172,7 +172,7 @@ class IndiaLocale(Locale):
 		from erpnext_demo_gen.setup.tax_templates import ensure_no_itc_templates
 
 		if run.params.get("registration") == "unregistered":
-			ensure_no_itc_templates(run, company, abbr)
+			ensure_no_itc_templates(run, company)
 		self._enable_sez(run, pack)
 
 	def _enable_sez(self, run, pack: dict):
@@ -207,14 +207,9 @@ class IndiaLocale(Locale):
 		from frappe.utils.nestedset import get_root_of
 
 		templates = {}
-		if run.params.get("registration") == "unregistered":  # the demo's own (F-51)
-			from erpnext_demo_gen.setup.tax_templates import ITEM_TAX_TITLE
-
-			abbr = frappe.get_cached_value("Company", company, "abbr")
-			for rate in GST_RATES:
-				name = f"{ITEM_TAX_TITLE.format(rate=rate)} - {abbr}"
-				if frappe.db.exists("Item Tax Template", name):
-					templates[float(rate)] = name
+		not_recoverable = run.params.get("not_recoverable") or {}  # --unregistered: the demo's own (F-51)
+		for rate, name in (not_recoverable.get("items") or {}).items():
+			templates[float(rate)] = name
 		for row in frappe.get_all(
 			"Item Tax Template",
 			filters={"company": company, "disabled": 0, "gst_rate": [">", 0], "name": ["not like", "%(not recoverable)%"]},
@@ -225,6 +220,7 @@ class IndiaLocale(Locale):
 		return {
 			"territory": "India" if frappe.db.exists("Territory", "India") else get_root_of("Territory"),
 			"tax_templates": templates,
+			"locale_data": {"no_itc_template": not_recoverable.get("purchase")},
 		}
 
 	def party_fields(self, p, w) -> dict:
@@ -260,11 +256,9 @@ class IndiaLocale(Locale):
 			return
 		import frappe
 
-		from erpnext_demo_gen.setup.tax_templates import no_itc_template
-
 		gstin = frappe.db.get_value("Supplier", doc.supplier, "gstin")
 		if gstin:
-			doc.taxes_and_charges = no_itc_template(w.abbr)
+			doc.taxes_and_charges = w.locale_data["no_itc_template"]
 
 	# ---------------------------------------------------------- install parameters
 	required_apps = ("erpnext", "india_compliance")
@@ -379,9 +373,7 @@ class IndiaLocale(Locale):
 				and not {sales_rows} (select 1 from `tabSales Taxes and Charges` t where t.parent=d.name)""",
 				(ctx.company,),
 			)
-		from erpnext_demo_gen.setup.tax_templates import not_recoverable_account
-
-		account = not_recoverable_account(frappe.get_cached_value("Company", ctx.company, "abbr"))
+		account = (ctx.run.params.get("not_recoverable") or {}).get("account")
 		# unregistered: GST on the not-recoverable account and nowhere else (no Input Tax)
 		other = "" if registered else "or exists (select 1 from `tabPurchase Taxes and Charges` t where t.parent=d.name and t.account_head != %(account)s)"
 		on_account = "" if registered else "and t.account_head = %(account)s"
