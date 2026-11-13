@@ -29,7 +29,7 @@ Germany                  furniture_store
   India's fiscal years run April to March, the others' January to December, and ERPNext
   cannot have both on one site; install refuses such a mix before it starts.
 - The Redis queue is running (`bench start`). Uninstall needs it.
-- For the desk page: a background worker on the `long` queue (`bench start` runs one).
+- For the desk page: a background worker on the queue (name=long); `bench start` runs one.
 - India only: the india_compliance app.
 
 ## Installation
@@ -74,7 +74,7 @@ history     recent runs; the Demo Data Run list has every run and its events
 help        the command line for each action, and what is command line only
 ```
 
-- Install and uninstall run as background jobs on the `long` queue, one at a time per site.
+- Install and uninstall run as background jobs on the queue (name=long), one at a time per site.
   The page shows "Waiting for a background worker" when no worker picks the job up.
 - The page asks before installing on a site that already has transactions (the CLI's
   `--force`), and asks you to type the company name before uninstalling.
