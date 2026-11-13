@@ -160,6 +160,9 @@ class Locale:
 	# ---------------------------------------------------------- install parameters
 	required_apps: tuple[str, ...] = ("erpnext",)
 	unregistered_warning = ""  # shown (and needing --force) when installing unregistered
+	# True when only suppliers with a tax ID charge tax (UAE: the TRN is the registration);
+	# False when suppliers without one charge it too (Germany: USt-IdNr. only for EU trade)
+	tax_id_means_registered = True
 
 	def preflight_problems(self) -> list[str]:
 		"""Site settings that make installing risky (overridable with --force)."""
@@ -193,8 +196,9 @@ class Locale:
 
 	def unregistered_checks(self, ctx, tax: str) -> list:
 		"""verify for --unregistered (DEC-36, DEC-37): sales carry no tax; purchases from
-		registered suppliers (with a tax ID) carry tax only on the not-recoverable account,
-		those from unregistered suppliers none. In wizard mode only the run's documents count."""
+		registered suppliers carry tax only on the not-recoverable account, those from
+		unregistered suppliers none (tax_id_means_registered). In wizard mode only the run's
+		documents count."""
 		import frappe
 
 		from erpnext_demo_gen.verify import Check
@@ -214,15 +218,16 @@ class Locale:
 				and (d.total_taxes_and_charges != 0 or exists (select 1 from `tabSales Taxes and Charges` t where t.parent=d.name))""",
 				ctx.company,
 			)
+		charges = "ifnull(s.tax_id, '') != ''" if self.tax_id_means_registered else "1=1"
 		wrong_bills = []
 		for doctype in ("Purchase Order", "Purchase Invoice"):
 			wrong_bills += frappe.db.sql_list(
 				f"""select d.name from `tab{doctype}` d join tabSupplier s on s.name=d.supplier
 				where d.company=%(company)s and d.docstatus=1 and (
-					(ifnull(s.tax_id, '') != '' and (
+					({charges} and (
 						not exists (select 1 from `tabPurchase Taxes and Charges` t where t.parent=d.name and t.account_head=%(account)s)
 						or exists (select 1 from `tabPurchase Taxes and Charges` t where t.parent=d.name and t.account_head!=%(account)s)))
-					or (ifnull(s.tax_id, '') = '' and d.total_taxes_and_charges != 0))""",
+					or (not ({charges}) and d.total_taxes_and_charges != 0))""",
 				{"company": ctx.company, "account": account},
 			)
 		taxed_sales, wrong_bills = ours(taxed_sales), ours(wrong_bills)

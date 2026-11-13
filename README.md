@@ -574,6 +574,8 @@ VAT Emirate     each sale's VAT Emirate (VAT 201 boxes 1a-1g) comes from the com
                 address's Emirate field, which the install sets to Dubai
 recoverable     every purchase bill records its VAT as "Recoverable Standard Rated
                 Expenses" (VAT 201 box 9)
+suppliers       one without a TRN is not registered and charges no VAT: its bills use an
+                empty template, "No VAT (supplier not registered)"
 UAE VAT Settings  lists the company's VAT account (reverse charge and VAT 201 use it)
 parties         TRNs (15 digits) for VAT-registered businesses; emirates as states,
                 P.O. Boxes, +971 numbers
@@ -669,8 +671,8 @@ Purchase template   Lieferung aus dem Inland (Vorsteuer nicht abziehbar): one "V
                     (§ 9b EStG); non-stock items: an expense
 Item Tax Templates  "19 % (nicht abziehbar)", "7 % (nicht abziehbar)", on each item under
                     the Tax Category "Vorsteuer nicht abziehbar"
-Tax Category        set on purchases from suppliers with a USt-IdNr., so only purchases
-                    pick the item's rate; sales lines get none, and "Automatically add
+Tax Category        set on every purchase (German suppliers charge VAT with or without
+                    an USt-IdNr.), so only purchases pick the item's rate; sales lines get none, and "Automatically add
                     Taxes and Charges from Item Tax Template" can stay on
 Company             no USt-IdNr. (a Kleinunternehmer still has a Steuernummer; not modelled)
 ```

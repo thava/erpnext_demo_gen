@@ -57,6 +57,7 @@ BRAND_WORDS = [
 	"Al Bustan", "Golden Sands", "Crescent", "Al Reef", "Majlis", "Creek", "Sidra", "Ghaf", "Al Fanar",
 ]
 LEGAL_SUFFIXES = ["LLC", "Trading LLC", "FZE", "FZCO"]  # FZE/FZCO: free zone companies
+NO_VAT_SUPPLIER = "No VAT (supplier not registered)"
 
 
 def iban(rng: random.Random, bank_code: str) -> str:
@@ -219,10 +220,20 @@ class AELocale(Locale):
 					{"doctype": "UAE VAT Settings", "company": company, "uae_vat_accounts": [{"account": a} for a in accounts]}
 				).insert(ignore_permissions=True),
 			)
+		# a supplier without a TRN is not registered and charges no VAT (F-54); an empty
+		# template keeps ERPNext from applying the default "UAE VAT 5%" to its bills
+		no_vat = frappe.db.get_value("Purchase Taxes and Charges Template", {"company": company, "title": NO_VAT_SUPPLIER})
+		no_vat = no_vat or run.ensure(
+			"setup:ae:no-vat-supplier",
+			lambda: frappe.get_doc(
+				{"doctype": "Purchase Taxes and Charges Template", "title": NO_VAT_SUPPLIER, "company": company}
+			).insert(ignore_permissions=True),
+		)
 		run.update_params(
 			ae_vat={
 				"sales": templates["Sales Taxes and Charges Template"],
 				"purchase": templates["Purchase Taxes and Charges Template"],
+				"no_vat_purchase": no_vat,
 				"accounts": accounts,
 			}
 		)
@@ -264,14 +275,15 @@ class AELocale(Locale):
 		return {}
 
 	def purchase_taxes(self, doc, w):
-		if w.tax_registered:
-			doc.taxes_and_charges = w.locale_data["purchase"]
-			return
+		"""A supplier with a TRN charges 5% VAT; one without a TRN is not registered and
+		charges none (F-54). Unregistered company: that VAT is a cost (not recoverable)."""
 		import frappe
 
-		# unregistered: a registered supplier's VAT is a cost; an unregistered one charges none
-		nr = w.locale_data["not_recoverable"]
 		registered = frappe.db.get_value("Supplier", doc.supplier, "tax_id")
+		if w.tax_registered:
+			doc.taxes_and_charges = w.locale_data["purchase"] if registered else w.locale_data["no_vat_purchase"]
+			return
+		nr = w.locale_data["not_recoverable"]
 		doc.taxes_and_charges = nr["purchase"] if registered else nr["no_tax_purchase"]
 
 	def sales_taxes(self, doc, w):
@@ -355,16 +367,20 @@ class AELocale(Locale):
 			+ (f"; without VAT Emirate: {no_emirate[:5]}" if no_emirate else ""),
 		)
 		bills = frappe.db.sql(
-			"""select name, base_total_taxes_and_charges tax, ifnull(recoverable_standard_rated_expenses, 0) recoverable
-			from `tabPurchase Invoice` where company = %s and docstatus = 1""",
+			"""select p.name, p.base_total_taxes_and_charges tax, ifnull(p.recoverable_standard_rated_expenses, 0) recoverable,
+			ifnull(s.tax_id, '') trn
+			from `tabPurchase Invoice` p join tabSupplier s on s.name = p.supplier where p.company = %s and p.docstatus = 1""",
 			ctx.company,
 			as_dict=True,
 		)
 		unrecorded = [b.name for b in bills if abs(flt(b.tax) - flt(b.recoverable)) > TOLERANCE]
+		wrong = [b.name for b in bills if bool(b.trn) != (flt(b.tax) != 0)]  # VAT only from suppliers with a TRN
 		bills_check = Check(
-			"bills record their VAT as recoverable",
-			bool(bills) and not unrecorded,
-			f"{len(bills)} bills" + (f"; recoverable VAT differs: {unrecorded[:5]}" if unrecorded else ""),
+			"bills: VAT from suppliers with a TRN, recorded as recoverable",
+			bool(bills) and not unrecorded and not wrong,
+			f"{len(bills)} bills"
+			+ (f"; recoverable VAT differs: {unrecorded[:5]}" if unrecorded else "")
+			+ (f"; VAT does not match the supplier's TRN: {wrong[:5]}" if wrong else ""),
 		)
 		result = vat_201({"company": ctx.company, "from_date": ctx.start, "to_date": ctx.end})
 		rows = result[1]

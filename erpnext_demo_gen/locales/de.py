@@ -349,15 +349,11 @@ class DELocale(Locale):
 		if w.tax_registered:
 			self._fill(doc, w.locale_data["purchase"])
 			return
-		import frappe
-
+		# every supplier charges VAT (an USt-IdNr. is only needed for EU trade; Kleinunternehmer
+		# suppliers are out of scope), which a Kleinunternehmer cannot deduct
 		nr = w.locale_data["not_recoverable"]
-		if frappe.db.get_value("Supplier", doc.supplier, "tax_id"):  # charges VAT we cannot deduct
-			doc.tax_category = nr["tax_category"]  # picks the items' non-deductible rates
-			self._fill(doc, nr["purchase"])
-		else:
-			doc.taxes_and_charges = nr["no_tax_purchase"]
-			doc.set("taxes", [])
+		doc.tax_category = nr["tax_category"]  # picks the items' non-deductible rates
+		self._fill(doc, nr["purchase"])
 
 	def sales_taxes(self, doc, w):
 		if w.tax_registered:
@@ -381,6 +377,7 @@ class DELocale(Locale):
 
 	# ---------------------------------------------------------- install parameters
 	required_apps = ("erpnext",)
+	tax_id_means_registered = False  # suppliers without an USt-IdNr. still charge VAT
 	unregistered_warning = (
 		"generating a Kleinunternehmer (§ 19 UStG): sales carry no VAT and the VAT paid on purchases "
 		"becomes part of their cost. This demo's turnover is above the limits (net turnover of at "

@@ -181,7 +181,10 @@ class DemoGenPage {
 				[__("Seed"), run.seed],
 				[__("Data up to"), run.end_date ? frappe.datetime.str_to_user(run.end_date) : ""],
 				[__("Home state"), run.home_state],
-				[__("Documents"), run.documents + (run.failed ? " " + __("({0} failed or skipped)", [run.failed]) : "")],
+				[
+					__("Documents"),
+					format_number(run.documents, null, 0) + (run.failed ? " " + __("({0} failed or skipped)", [run.failed]) : ""),
+				],
 				[__("Installed"), run.finished_at && run.status === "Completed" ? frappe.datetime.str_to_user(run.finished_at) : ""],
 			];
 			if (run.registration === "unregistered") facts.splice(3, 0, [__("Tax"), __("not registered (CLI --unregistered)")]);
