@@ -275,14 +275,14 @@ class USLocale(Locale):
 			roles = purchase_accounts if scope == "purchase" else tuple(TAX_ACCOUNTS)
 			run.ensure(
 				f"setup:us:item-tax-template:{tax_class}",
-				lambda title=title, roles=roles: frappe.get_doc(
+				lambda title=title, roles=roles: _item_tax_template(
 					{
 						"doctype": "Item Tax Template",
 						"title": title,
 						"company": company,
 						"taxes": [{"tax_type": accounts[r], "tax_rate": 0} for r in roles],
 					}
-				).insert(ignore_permissions=True),
+				),
 			)
 
 		label = f"{rate:g}%"
@@ -576,3 +576,13 @@ def _parent_account(company: str, root_type: str) -> str:
 	return frappe.db.get_value(
 		"Account", {"company": company, "account_name": preferred, "is_group": 1}
 	) or frappe.db.get_value("Account", {"company": company, "root_type": root_type, "is_group": 1}, order_by="lft desc")
+
+
+def _item_tax_template(fields: dict):
+	import frappe
+
+	from erpnext_demo_gen.setup.tax_templates import gst_fields
+
+	doc = frappe.get_doc(fields)
+	gst_fields(doc)  # a site with india_compliance (F-55)
+	return doc.insert(ignore_permissions=True)

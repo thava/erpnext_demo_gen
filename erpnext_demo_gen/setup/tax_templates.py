@@ -42,6 +42,18 @@ def purge_orphans(abbr: str) -> int:
 	return removed
 
 
+def gst_fields(doc, rate: float = 0):
+	"""india_compliance validates every Item Tax Template on the site, whatever the company's
+	country (F-55): an Indian template is "Taxable" at its GST rate; another country's is
+	"Non-GST", which needs no rate."""
+	if not doc.meta.has_field("gst_treatment"):
+		return
+	if frappe.get_cached_value("Company", doc.company, "country") == "India":
+		doc.update({"gst_treatment": "Taxable", "gst_rate": rate})
+	else:
+		doc.update({"gst_treatment": "Non-GST", "gst_rate": 0})
+
+
 def ensure_not_recoverable(
 	run,
 	company: str,
@@ -138,8 +150,7 @@ def ensure_not_recoverable(
 					"taxes": [{"tax_type": out["account"], "tax_rate": rate}],
 				}
 			)
-			if doc.meta.has_field("gst_rate"):  # india_compliance's fields
-				doc.update({"gst_treatment": "Taxable", "gst_rate": rate})
+			gst_fields(doc, rate)
 			return doc.insert(ignore_permissions=True)
 
 		out["items"][key] = run.ensure(f"setup:not-recoverable:item-tax:{key}", create_item_template)

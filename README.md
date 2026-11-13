@@ -24,10 +24,13 @@ Germany                  furniture_store
 ## Requirements
 
 - frappe and erpnext version 16, or their `develop` branch (the next major version).
-- The setup wizard is finished, for the demo's country and currency.
-  For example, a German demo needs a site set up for Germany, in EUR.
-  India's fiscal years run April to March, the others' January to December, and ERPNext
-  cannot have both on one site; install refuses such a mix before it starts.
+- The setup wizard is finished. The usual case, and what CI tests, is a site set up for
+  the demo's country (a German demo on a site set up for Germany, in EUR).
+- Another country's demo on the same site: an Indian demo on a site set up for the US
+  works (tested; the UAE and Germany use the same calendar as the US). It gets its own April-to-March fiscal years, limited to the demo
+  company, and price lists in INR. Demos for the US, UAE and Germany need a site without
+  india_compliance: it requires GST details (an HSN code) on every item and party on the
+  site, whatever the company's country. Install says so before it starts.
 - The Redis queue is running (`bench start`). Uninstall needs it.
 - For the desk page: a background worker on the queue (name=long); `bench start` runs one.
 - India only: the india_compliance app.

@@ -77,11 +77,9 @@ def get_install_options() -> dict:
 	"""Countries, their packs, sizes and home states for the install form."""
 	_check()
 	from erpnext_demo_gen.locales import get_locale
+	from erpnext_demo_gen import service
 	from erpnext_demo_gen.packs import default_packs, list_packs, load_pack
 
-	from frappe.utils import getdate, nowdate
-
-	from erpnext_demo_gen.setup.company import fiscal_year_conflict
 
 	countries = {}
 	defaults = default_packs()
@@ -98,8 +96,7 @@ def get_install_options() -> dict:
 				"currency": locale.currency,
 				"default_pack": defaults.get(p["country"]),
 				"missing_apps": [a for a in locale.required_apps if a not in installed],
-				# the longest page size (medium, 12 months) up to today; the page re-checks on install
-				"site_problem": fiscal_year_conflict(locale, getdate(nowdate()), 12),
+				"site_problem": service.site_problem(locale, installed),
 				"is_site_country": locale.country == site_country,
 				"packs": [],
 				"home_states": locale.home_regions(),

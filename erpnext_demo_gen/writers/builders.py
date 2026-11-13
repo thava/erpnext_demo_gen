@@ -235,6 +235,17 @@ def _save(doc, pd, submit=True, fill_taxes=False, tax_inclusive=False):
 	return doc
 
 
+def _price_list(doc, w):
+	"""Name the demo's price list on the document: the site's default may be in another
+	currency (another country's company), and the document's currency follows it (F-53)."""
+	if doc.meta.has_field("selling_price_list"):
+		doc.selling_price_list = w.selling_price_list
+	if doc.meta.has_field("buying_price_list"):
+		doc.buying_price_list = w.buying_price_list
+	if doc.meta.has_field("currency"):
+		doc.currency = frappe.get_cached_value("Company", w.company, "default_currency")
+
+
 def _lines(lines, w, date_field=None, when=None, warehouse=None):
 	rows = []
 	for line in lines:
@@ -347,6 +358,7 @@ def purchase_order(p, w, pd):
 			}
 		)
 	doc.schedule_date = p.schedule_date
+	_price_list(doc, w)
 	w.locale.purchase_taxes(doc, w)  # India --unregistered: the no-ITC template (F-38)
 	return _save(doc, pd, fill_taxes=True)
 
@@ -398,6 +410,7 @@ def quotation(p, w, pd):
 			"items": _lines(p.lines, w),
 		}
 	)
+	_price_list(doc, w)
 	w.locale.sales_taxes(doc, w)
 	return _save(doc, pd, fill_taxes=True)
 
@@ -426,6 +439,7 @@ def sales_order(p, w, pd):
 	for row in doc.items:
 		row.delivery_date = p.delivery_date
 		row.warehouse = row.warehouse or w.default_warehouse
+	_price_list(doc, w)
 	w.locale.sales_taxes(doc, w)
 	return _save(doc, pd, fill_taxes=True)
 
@@ -477,6 +491,7 @@ def counter_sales_invoice(p, w, pd):
 	)
 	_dated(doc, pd)
 	_credit_terms(doc, p.credit_days)
+	_price_list(doc, w)
 	w.locale.sales_taxes(doc, w)
 	return _save(doc, pd, submit=not p.draft, fill_taxes=True, tax_inclusive=w.locale.prices_include_tax)
 

@@ -114,6 +114,7 @@ def setup_company(run: Run, pack: dict) -> str:
 	for fy_start in fiscal_year_starts(start, end, locale):
 		ensure_fiscal_year(run, fy_start, company, locale)
 
+	ensure_price_lists(run, company)
 	locale.setup_taxes(run, company, abbr, pack)  # India: no-ITC templates (--unregistered), SEZ switch
 	setup_banking(run, company, abbr, pack)
 
@@ -121,62 +122,73 @@ def setup_company(run: Run, pack: dict) -> str:
 	return company
 
 
-def fiscal_year_conflict(locale, end_date: date, months: int) -> str | None:
-	"""Why the demo's fiscal years cannot be created on this site, or None.
-
-	ERPNext refuses a fiscal year that overlaps another one for all companies, and a
-	company-specific one would still lose to the site-wide year on some dates. So a demo
-	whose fiscal years run differently (India April to March; the US, UAE and Germany
-	January to December) needs a site set up for its country (README: Requirements).
-	"""
-	start, end = date_range(end_date, months)
-	for fy_start in locale.fiscal_year_starts(start, end):
-		fy_end = locale.fiscal_year_end(fy_start)
-		for fy in frappe.get_all(
-			"Fiscal Year",
-			filters={"year_start_date": ["<=", fy_end], "year_end_date": [">=", fy_start], "disabled": 0},
-			fields=["name", "year_start_date", "year_end_date"],
-		):
-			if fy.year_start_date == fy_start and fy.year_end_date == fy_end:
-				continue
-			if frappe.db.exists("Fiscal Year Company", {"parent": fy.name}):
-				continue  # limited to certain companies; ensure_fiscal_year handles its own
-			day = lambda d: f"{d.day} {d:%B}"  # noqa: E731
-			return (
-				f"This site's fiscal year {fy.name} runs from {day(fy.year_start_date)} to "
-				f"{day(fy.year_end_date)}, and a demo for {locale.country} needs years from "
-				f"{day(fy_start)} to {day(fy_end)}; ERPNext does not allow both. Install it on a "
-				f"site whose setup wizard chose {locale.country}."
-			)
-	return None
-
-
 def ensure_fiscal_year(run: Run, fy_start: date, company: str, locale=None):
-	existing = frappe.db.get_value(
-		"Fiscal Year", {"year_start_date": fy_start}, ["name", "disabled"], as_dict=True
-	)
-	if existing:
-		companies = frappe.get_all("Fiscal Year Company", {"parent": existing.name}, pluck="company")
-		if companies and company not in companies:
-			frappe.throw(
-				f"Fiscal Year {existing.name} is limited to {', '.join(companies)}; "
-				"a demo company cannot share it yet. Remove the company restriction or pick another --end-date."
-			)
-		if existing.disabled:
-			frappe.throw(f"Fiscal Year {existing.name} is disabled")
-		return
+	"""The demo company's fiscal year starting fy_start: the site's own when it has one with
+	the same dates, otherwise a new one.
+
+	When the site's years run on another calendar (India April to March; the US, UAE and
+	Germany January to December), the new year is limited to the demo company (F-53).
+	ERPNext allows such an overlap and gives a company its own years first
+	(_get_fiscal_years), so the demo uses its calendar and the site's other companies keep
+	theirs.
+	"""
 	fy_end = (locale or get_locale()).fiscal_year_end(fy_start)
+	for fy in frappe.get_all(
+		"Fiscal Year",
+		filters={"year_start_date": fy_start, "year_end_date": fy_end},
+		fields=["name", "disabled"],
+	):
+		companies = frappe.get_all("Fiscal Year Company", {"parent": fy.name}, pluck="company")
+		if companies and company not in companies:
+			continue  # another company's year
+		if fy.disabled:
+			frappe.throw(f"Fiscal Year {fy.name} is disabled; enable it or pick another --end-date")
+		return
+	overlapping = frappe.get_all(
+		"Fiscal Year",
+		filters={"year_start_date": ["<=", fy_end], "year_end_date": [">=", fy_start]},
+		pluck="name",
+	)
+	label = f"{fy_start.year}-{fy_end.year}" if fy_end.year != fy_start.year else str(fy_start.year)
+	limited = bool(overlapping)
+	if limited:
+		abbr = frappe.get_cached_value("Company", company, "abbr")
+		label = f"{label} ({abbr})"
 	run.ensure(
 		f"setup:fiscal-year:{fy_start.year}",
 		lambda: frappe.get_doc(
 			{
 				"doctype": "Fiscal Year",
-				"year": f"{fy_start.year}-{fy_end.year}",
+				"year": label,
 				"year_start_date": fy_start,
 				"year_end_date": fy_end,
+				"companies": [{"company": company}] if limited else [],
 			}
 		).insert(ignore_permissions=True),
 	)
+
+
+def ensure_price_lists(run: Run, company: str):
+	"""Price lists in the demo company's currency. The site's defaults (Selling and Buying
+	Settings) are used when they are in that currency; on a site set up for another country
+	the demo gets "Standard Selling (INR)" and so on, recorded for uninstall (F-53)."""
+	currency = frappe.get_cached_value("Company", company, "default_currency")
+	chosen = {}
+	for role, settings, flag in (("selling", "Selling Settings", "selling"), ("buying", "Buying Settings", "buying")):
+		default = frappe.db.get_single_value(settings, f"{role}_price_list") or f"Standard {role.title()}"
+		if frappe.db.get_value("Price List", default, "currency") == currency:
+			chosen[role] = default
+			continue
+		name = f"Standard {role.title()} ({currency})"
+		if not frappe.db.exists("Price List", name):
+			run.ensure(
+				f"setup:price-list:{role}",
+				lambda name=name, flag=flag: frappe.get_doc(
+					{"doctype": "Price List", "price_list_name": name, "currency": currency, flag: 1, "enabled": 1}
+				).insert(ignore_permissions=True),
+			)
+		chosen[role] = name
+	run.update_params(price_lists=chosen)
 
 
 BANK_MODES = ("Wire Transfer", "Cheque", "Bank Draft", "Credit Card")  # ERPNext's own; go to the main account

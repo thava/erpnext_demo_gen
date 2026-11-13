@@ -225,7 +225,11 @@ def blocker(doctype: str, name: str) -> str | None:
 	"""Why a record must be kept, for cases frappe's link check does not cover."""
 	if doctype == "Fiscal Year":
 		start, end = frappe.db.get_value("Fiscal Year", name, ["year_start_date", "year_end_date"])
-		n = frappe.db.count("GL Entry", {"posting_date": ["between", [start, end]], "is_cancelled": 0})
+		filters = {"posting_date": ["between", [start, end]], "is_cancelled": 0}
+		companies = frappe.get_all("Fiscal Year Company", {"parent": name}, pluck="company")
+		if companies:  # limited to the demo company (F-53): only its entries count
+			filters["company"] = ["in", companies]
+		n = frappe.db.count("GL Entry", filters)
 		if n:
 			return f"{n} GL entries of other companies fall in this fiscal year"
 	return None

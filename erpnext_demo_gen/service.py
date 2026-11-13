@@ -41,6 +41,9 @@ def preflight(force: bool = False, locale=None) -> list[str]:
 	for app in locale.required_apps:
 		if app not in installed:
 			raise DemoDataError(f"{app} must be installed on the site first")
+	problem = site_problem(locale, installed)
+	if problem:
+		raise DemoDataError(problem)
 	if not frappe.is_setup_complete():
 		raise DemoDataError("Finish the setup wizard first")
 	check_redis()
@@ -49,6 +52,23 @@ def preflight(force: bool = False, locale=None) -> list[str]:
 	if problems and not force:
 		raise NeedsForce("Refusing to install: " + "; ".join(problems) + ".")
 	return problems
+
+
+def site_problem(locale, installed=None) -> str | None:
+	"""Why this site cannot hold a demo for the locale's country, or None (F-55).
+
+	india_compliance checks every Item and party on the site for GST details (an HSN code on
+	each item, GST categories on parties), whatever the company's country: items and parties
+	are not per company. So demos for other countries need a site without it.
+	"""
+	installed = installed if installed is not None else frappe.get_installed_apps()
+	if locale.code != "IN" and "india_compliance" in installed:
+		return (
+			f"This site has india_compliance, which requires GST details (such as an HSN code) on "
+			f"every item and party on the site, whatever the company's country. A demo for "
+			f"{locale.country} needs a site without india_compliance."
+		)
+	return None
 
 
 def existing_transactions(only_company: str | None = None) -> list[str]:
@@ -167,11 +187,6 @@ def resolve_params(
 		raise DemoDataError(
 			f"Company {company!r} already exists; pick another --demo-company-name or use --use-wizard-company"
 		)
-	from erpnext_demo_gen.setup.company import fiscal_year_conflict
-
-	conflict = fiscal_year_conflict(locale, getdate(params["end_date"]), params["months"])
-	if conflict:
-		raise DemoDataError(conflict)
 	if params["home_state"] not in locale.home_regions():
 		raise DemoDataError(f"No curated cities for {params['home_state']} yet; choose one of: {choices}")
 	return pack, params

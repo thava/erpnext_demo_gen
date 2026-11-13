@@ -56,9 +56,11 @@ class WriteContext:
 			abbr=abbr,
 			default_warehouse=f"{pack['company']['warehouses'][0]} - {abbr}",
 			start_date=getdate(start_date),
-			selling_price_list=frappe.db.get_single_value("Selling Settings", "selling_price_list")
+			selling_price_list=(run.params.get("price_lists") or {}).get("selling")
+			or frappe.db.get_single_value("Selling Settings", "selling_price_list")
 			or "Standard Selling",
-			buying_price_list=frappe.db.get_single_value("Buying Settings", "buying_price_list")
+			buying_price_list=(run.params.get("price_lists") or {}).get("buying")
+			or frappe.db.get_single_value("Buying Settings", "buying_price_list")
 			or "Standard Buying",
 			tax_registered=run.params.get("registration", "registered") == "registered",
 			locale=locale,
