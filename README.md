@@ -26,7 +26,10 @@ Germany                  furniture_store
 - frappe and erpnext version 16, or their `develop` branch (the next major version).
 - The setup wizard is finished, for the demo's country and currency.
   For example, a German demo needs a site set up for Germany, in EUR.
+  India's fiscal years run April to March, the others' January to December, and ERPNext
+  cannot have both on one site; install refuses such a mix before it starts.
 - The Redis queue is running (`bench start`). Uninstall needs it.
+- For the desk page: a background worker on the `long` queue (`bench start` runs one).
 - India only: the india_compliance app.
 
 ## Installation
@@ -54,6 +57,32 @@ bench --site <site> demo-gen uninstall [--run DD-RUN-00001] [--yes] [--registry-
 bench demo-gen snapshot build --country IN|US|AE|DE [--pack NAME] [--size medium] [--seed N]
 bench demo-gen snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
 ```
+
+## The DemoGen page
+
+After installing the app, open **DemoGen** on the apps screen, or go to `/desk/demo-gen`.
+It is for System Managers. Whoever finishes the setup wizard also gets a notification
+pointing to it.
+
+```
+status      the installed demo: company, country, pack, size, data period, documents;
+            Verify (the same checks as demo-gen verify), Uninstall, Open company
+install     country, pack, size (small or medium), home state, company name, seed, end date
+progress    "120 of 279 documents written, about 30 s left", with the log;
+            Resume install after a stop, as re-running the CLI command does
+history     recent runs; the Demo Data Run list has every run and its events
+help        the command line for each action, and what is command line only
+```
+
+- Install and uninstall run as background jobs on the `long` queue, one at a time per site.
+  The page shows "Waiting for a background worker" when no worker picks the job up.
+- The page asks before installing on a site that already has transactions (the CLI's
+  `--force`), and asks you to type the company name before uninstalling.
+- Command line only: `--size large`, `--use-wizard-company`, `--unregistered`,
+  `uninstall --registry-only` and `--no-backup`, and snapshots.
+- After updating the app, restart the workers (`bench restart`; in development, restart
+  `bench start`). A worker keeps the code it had loaded, so the page refuses to run a job
+  on code older than the app's files and says so.
 
 ## Tutorial
 

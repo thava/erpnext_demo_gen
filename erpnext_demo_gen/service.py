@@ -19,6 +19,18 @@ class DemoDataError(Exception):
 	"""A refusal or failure with a message meant for the user."""
 
 
+class NeedsForce(DemoDataError):
+	"""A refusal the user may override (CLI: --force; desk page: a confirmation).
+
+	str() is the CLI message (reason, then the "--force" advice); the page shows the
+	reason and asks question.
+	"""
+
+	def __init__(self, reason: str, advice: str = "Use --force to install anyway.", question: str = "Install anyway?"):
+		self.reason, self.question = reason, question
+		super().__init__(f"{reason}{chr(10) if chr(10) in reason else ' '}{advice}")
+
+
 # ---------------------------------------------------------------- preflight
 def preflight(force: bool = False, locale=None) -> list[str]:
 	"""Hard failures raise; soft ones (overridable with force) are returned as warnings."""
@@ -35,9 +47,7 @@ def preflight(force: bool = False, locale=None) -> list[str]:
 
 	problems = locale.preflight_problems()
 	if problems and not force:
-		raise DemoDataError(
-			"Refusing to install: " + "; ".join(problems) + ". Use --force to install anyway."
-		)
+		raise NeedsForce("Refusing to install: " + "; ".join(problems) + ".")
 	return problems
 
 
@@ -74,6 +84,7 @@ def site_in_use(params: dict, force: bool, log=print):
 			"next to its existing ones. Uninstall removes only the demo's documents; yours stay."
 		)
 		ask = "Installing into a company that is in use needs --force."
+		confirm = "Install into a company that is in use?"
 	else:
 		effect = (
 			"The demo goes into a new, separate company (a peer, not a child company) and\n"
@@ -81,8 +92,9 @@ def site_in_use(params: dict, force: bool, log=print):
 			"uninstall deletes it and restores the current default."
 		)
 		ask = "This is safe, but because the site is in use, installing needs --force."
+		confirm = "This is safe. Install anyway?"
 	if not force:
-		raise DemoDataError(f"This site already has transactions:\n{listing}\n{effect}\n{ask}")
+		raise NeedsForce(f"This site already has transactions:\n{listing}\n{effect}", ask, confirm)
 	log(f"Note (--force): this site already has transactions:\n{listing}\n{effect}")
 
 
@@ -155,6 +167,11 @@ def resolve_params(
 		raise DemoDataError(
 			f"Company {company!r} already exists; pick another --demo-company-name or use --use-wizard-company"
 		)
+	from erpnext_demo_gen.setup.company import fiscal_year_conflict
+
+	conflict = fiscal_year_conflict(locale, getdate(params["end_date"]), params["months"])
+	if conflict:
+		raise DemoDataError(conflict)
 	if params["home_state"] not in locale.home_regions():
 		raise DemoDataError(f"No curated cities for {params['home_state']} yet; choose one of: {choices}")
 	return pack, params
@@ -226,7 +243,7 @@ def install(
 	site_in_use(params, force, log)
 	if params["registration"] == "unregistered":
 		if not force:
-			raise DemoDataError(f"Refusing to install: {locale.unregistered_warning}. Use --force to install anyway.")
+			raise NeedsForce(f"Refusing to install: {locale.unregistered_warning}.")
 		warnings.append(locale.unregistered_warning)
 	if params["fictitious_gstin"]:
 		log(

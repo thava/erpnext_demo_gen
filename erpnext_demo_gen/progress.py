@@ -5,8 +5,21 @@ grow with database size, so estimates are rough by design.
 """
 
 import time
+from contextlib import contextmanager
 
 PROGRESS_EVERY = 20  # seconds between progress lines
+
+_listeners: list = []  # fn(done, total, verb, left_seconds), called on every update (the desk page)
+
+
+@contextmanager
+def listening(fn):
+	"""Also report every Progress update to fn (structured, not throttled)."""
+	_listeners.append(fn)
+	try:
+		yield
+	finally:
+		_listeners.remove(fn)
 
 
 def duration(seconds: float) -> str:
@@ -37,6 +50,11 @@ class Progress:
 
 	def update(self, done: int):
 		now = time.monotonic()
+		if self.total and _listeners:
+			elapsed = now - self.started
+			left = elapsed / done * (self.total - done) if done else None
+			for fn in _listeners:
+				fn(done, self.total, self.verb, left)
 		if now - self.last < PROGRESS_EVERY or not self.total:
 			return
 		self.last = now

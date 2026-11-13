@@ -34,6 +34,18 @@ def _connect(context):
 	return site
 
 
+def _no_page_job():
+	"""The desk page runs install and uninstall as a background job; one at a time per site."""
+	from erpnext_demo_gen import jobs
+	from erpnext_demo_gen.service import DemoDataError
+
+	if jobs.job_active():
+		raise DemoDataError(
+			f"A DemoGen job started from the desk page is {jobs.job_status()} on this site; "
+			"wait for it to finish (see /desk/demo-gen)"
+		)
+
+
 def _run(context, fn):
 	import frappe
 
@@ -142,6 +154,7 @@ def install(
 	from erpnext_demo_gen import service
 
 	def go():
+		_no_page_job()
 		run = service.install(
 			pack,
 			size,
@@ -365,6 +378,7 @@ def uninstall(context, run_name, yes, registry_only, no_backup):
 	def go():
 		from erpnext_demo_gen.registry import active_runs
 
+		_no_page_job()
 		target = run_name or ", ".join(f"{r.name} ({r.company})" for r in active_runs()) or "nothing"
 		if not yes:
 			click.confirm(f"Delete demo data of {target}?", abort=True)

@@ -10,16 +10,19 @@ app_license = "gpl-3.0"
 
 # required_apps = []
 
-# Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "erpnext_demo_gen",
-# 		"logo": "/assets/erpnext_demo_gen/logo.png",
-# 		"title": "Demo Data",
-# 		"route": "/erpnext_demo_gen",
-# 		"has_permission": "erpnext_demo_gen.api.permission.has_app_permission",
-# 	}
-# ]
+# The apps screen shows DemoGen (design 5.19). No setup_wizard_text: it is not offered as a
+# choice inside the setup wizard; a note after the wizard points to it instead.
+add_to_apps_screen = [
+	{
+		"name": "erpnext_demo_gen",
+		"logo": "/assets/erpnext_demo_gen/images/demo-gen-logo.svg",
+		"title": "DemoGen",
+		"route": "/desk/demo-gen",
+		"has_permission": "erpnext_demo_gen.api.has_app_permission",
+	}
+]
+
+setup_wizard_complete = "erpnext_demo_gen.api.after_setup_wizard"
 
 # The dock, the rail down the left of the desk, is a document rather than a hook. Author it in
 # Manage Dock on a developer-mode site and press Export to App, and it is written to
