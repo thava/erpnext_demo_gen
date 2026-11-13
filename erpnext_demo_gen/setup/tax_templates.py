@@ -42,49 +42,95 @@ def purge_orphans(abbr: str) -> int:
 	return removed
 
 
-NO_ITC_TITLE = "Input GST {place}-state (no ITC)"
+NOT_RECOVERABLE_ACCOUNT = "GST Not Recoverable"
+NO_ITC_TITLE = "Input GST (not recoverable)"
+ITEM_TAX_TITLE = "GST {rate:g}% (not recoverable)"
 
 
-def no_itc_template(place: str, abbr: str) -> str:
-	"""Name of the purchase template an unregistered company uses: place is "In" or "Out"."""
-	return f"{NO_ITC_TITLE.format(place=place)} - {abbr}"
+def no_itc_template(abbr: str) -> str:
+	"""Name of the purchase template an unregistered company uses for registered suppliers."""
+	return f"{NO_ITC_TITLE} - {abbr}"
 
 
-def ensure_no_itc_templates(run, company: str, abbr: str):
-	"""Purchase templates for a company not registered for GST (--unregistered, F-38).
+def not_recoverable_account(abbr: str) -> str:
+	return f"{NOT_RECOVERABLE_ACCOUNT} - {abbr}"
 
-	A registered supplier still charges GST, but an unregistered buyer cannot claim
-	it back, so it belongs in the cost of the goods. Neither ERPNext nor
-	india_compliance does this for an unregistered company: the user creates
-	templates whose rows are "Valuation and Total" and selects them on purchases.
-	These copy india_compliance's input templates (same accounts, so per-item GST
-	rates from Item Tax Templates still apply) with that one change. They carry no
-	tax category, so india_compliance never picks them should the company register.
+
+def ensure_no_itc_templates(run, company: str, abbr: str) -> dict[float, str]:
+	"""Accounts and templates for a company not registered for GST (--unregistered, F-38, F-51).
+
+	A registered supplier still charges GST, but an unregistered buyer cannot claim it
+	back. Neither ERPNext nor india_compliance handles this; the user sets it up:
+
+	    account   "GST Not Recoverable" (expense), not india_compliance's Input Tax accounts
+	    purchase  one template, one row on that account, "Valuation and Total":
+	              stock items      -> the GST goes into their cost (stock value, then COGS)
+	              non-stock items  -> ERPNext makes the row "Total" (nothing to value), so
+	                                  the GST is an expense when bought
+	    items     Item Tax Templates "GST 5% (not recoverable)" etc. give that account the
+	              item's full GST rate (the CGST/SGST/IGST split is not kept)
+
+	The templates carry no tax category, so india_compliance never picks them should the
+	company register. Everything is recorded, so uninstall removes it. Returns the item
+	tax templates by GST rate.
 	"""
-	for place in ("In", "Out"):
-		source = f"Input GST {place}-state - {abbr}"
-		if not frappe.db.exists("Purchase Taxes and Charges Template", source):
-			frappe.throw(f"Purchase template {source!r} not found; india_compliance creates it with the company")
+	from erpnext_demo_gen.locales.india import GST_RATES
 
-		def create(place=place, source=source):
-			rows = frappe.get_doc("Purchase Taxes and Charges Template", source).taxes
+	account = not_recoverable_account(abbr)
+
+	def create_account():
+		parent = frappe.db.get_value(
+			"Account", {"company": company, "account_name": "Indirect Expenses", "is_group": 1}
+		) or frappe.db.get_value(
+			"Account", {"company": company, "root_type": "Expense", "is_group": 1}, order_by="lft asc"
+		)
+		return frappe.get_doc(
+			{
+				"doctype": "Account",
+				"account_name": NOT_RECOVERABLE_ACCOUNT,
+				"company": company,
+				"parent_account": parent,
+				"account_type": "Expense Account",
+				"root_type": "Expense",
+			}
+		).insert(ignore_permissions=True)
+
+	account = run.ensure("setup:gst-not-recoverable-account", create_account)
+
+	def create_purchase_template():
+		return frappe.get_doc(
+			{
+				"doctype": "Purchase Taxes and Charges Template",
+				"title": NO_ITC_TITLE,
+				"company": company,
+				"taxes": [
+					{
+						"category": "Valuation and Total",
+						"add_deduct_tax": "Add",
+						"charge_type": "On Net Total",
+						"account_head": account,
+						"description": "GST paid, not recoverable (no ITC)",
+						"rate": 18,  # each item's rate comes from its Item Tax Template
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+	run.ensure("setup:no-itc-template", create_purchase_template)
+
+	templates = {}
+	for rate in GST_RATES:
+		def create_item_template(rate=rate):
 			return frappe.get_doc(
 				{
-					"doctype": "Purchase Taxes and Charges Template",
-					"title": NO_ITC_TITLE.format(place=place),
+					"doctype": "Item Tax Template",
+					"title": ITEM_TAX_TITLE.format(rate=rate),
 					"company": company,
-					"taxes": [
-						{
-							"category": "Valuation and Total",
-							"add_deduct_tax": "Add",
-							"charge_type": row.charge_type,
-							"account_head": row.account_head,
-							"description": f"{row.description} (no ITC: part of cost)",
-							"rate": row.rate,
-						}
-						for row in rows
-					],
+					"gst_treatment": "Taxable",
+					"gst_rate": rate,
+					"taxes": [{"tax_type": account, "tax_rate": rate}],
 				}
 			).insert(ignore_permissions=True)
 
-		run.ensure(f"setup:no-itc-template:{place}", create)
+		templates[float(rate)] = run.ensure(f"setup:no-itc-item-tax:{rate:g}", create_item_template)
+	return templates

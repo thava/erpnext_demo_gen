@@ -201,15 +201,23 @@ class IndiaLocale(Locale):
 
 	# ---------------------------------------------------------- writing documents
 	def writer_context(self, run, company: str) -> dict:
-		"""india_compliance's Item Tax Templates by GST rate ("GST 18% - ABC"), the
-		India territory, and the home state's GST code (for --unregistered purchases)."""
+		"""Item Tax Templates by GST rate: india_compliance's ("GST 18% - ABC"), or with
+		--unregistered the demo's not-recoverable ones; and the India territory."""
 		import frappe
 		from frappe.utils.nestedset import get_root_of
 
 		templates = {}
+		if run.params.get("registration") == "unregistered":  # the demo's own (F-51)
+			from erpnext_demo_gen.setup.tax_templates import ITEM_TAX_TITLE
+
+			abbr = frappe.get_cached_value("Company", company, "abbr")
+			for rate in GST_RATES:
+				name = f"{ITEM_TAX_TITLE.format(rate=rate)} - {abbr}"
+				if frappe.db.exists("Item Tax Template", name):
+					templates[float(rate)] = name
 		for row in frappe.get_all(
 			"Item Tax Template",
-			filters={"company": company, "disabled": 0, "gst_rate": [">", 0]},
+			filters={"company": company, "disabled": 0, "gst_rate": [">", 0], "name": ["not like", "%(not recoverable)%"]},
 			fields=["name", "gst_rate"],
 			order_by="name",
 		):
@@ -217,7 +225,6 @@ class IndiaLocale(Locale):
 		return {
 			"territory": "India" if frappe.db.exists("Territory", "India") else get_root_of("Territory"),
 			"tax_templates": templates,
-			"locale_data": {"home_state_code": geo.state_code(run.params.home_state)},
 		}
 
 	def party_fields(self, p, w) -> dict:
@@ -247,7 +254,7 @@ class IndiaLocale(Locale):
 
 	def purchase_taxes(self, doc, w):
 		"""Unregistered company (--unregistered): nothing picks a template (F-38), so select the
-		no-ITC one by the supplier's state, as the user would; an unregistered supplier
+		no-ITC one for a registered supplier, as the user would; an unregistered supplier
 		charges none. A registered company keeps what ERPNext picks."""
 		if w.tax_registered:
 			return
@@ -257,8 +264,7 @@ class IndiaLocale(Locale):
 
 		gstin = frappe.db.get_value("Supplier", doc.supplier, "gstin")
 		if gstin:
-			place = "In" if gstin[:2] == w.locale_data["home_state_code"] else "Out"
-			doc.taxes_and_charges = no_itc_template(place, w.abbr)
+			doc.taxes_and_charges = no_itc_template(w.abbr)
 
 	# ---------------------------------------------------------- install parameters
 	required_apps = ("erpnext", "india_compliance")
@@ -352,8 +358,8 @@ class IndiaLocale(Locale):
 		Registered (F-16): every submitted sale and every purchase from a GST-registered
 		supplier carries GST rows, except zero-rated SEZ and export supplies made without
 		GST (under a bond). Unregistered (--unregistered): sales carry none, and those
-		purchases carry GST as part of cost ("Valuation and Total"), since no credit can
-		be claimed.
+		purchases carry GST only on the "GST Not Recoverable" expense account (F-51), since
+		no credit can be claimed: in the cost of stock items, an expense for the rest.
 		"""
 		import frappe
 
@@ -373,14 +379,19 @@ class IndiaLocale(Locale):
 				and not {sales_rows} (select 1 from `tabSales Taxes and Charges` t where t.parent=d.name)""",
 				(ctx.company,),
 			)
-		cost_only = "" if registered else "and t.category = 'Valuation and Total'"
+		from erpnext_demo_gen.setup.tax_templates import not_recoverable_account
+
+		account = not_recoverable_account(frappe.get_cached_value("Company", ctx.company, "abbr"))
+		# unregistered: GST on the not-recoverable account and nowhere else (no Input Tax)
+		other = "" if registered else "or exists (select 1 from `tabPurchase Taxes and Charges` t where t.parent=d.name and t.account_head != %(account)s)"
+		on_account = "" if registered else "and t.account_head = %(account)s"
 		for doctype in ("Purchase Order", "Purchase Invoice"):
 			wrong += frappe.db.sql_list(
 				f"""select d.name from `tab{doctype}` d join tabSupplier s on s.name=d.supplier
-				where d.company=%s and d.docstatus=1 and s.gst_category != 'Unregistered'
-				and not exists (select 1 from `tabPurchase Taxes and Charges` t
-					where t.parent=d.name {cost_only})""",
-				(ctx.company,),
+				where d.company=%(company)s and d.docstatus=1 and s.gst_category != 'Unregistered'
+				and (not exists (select 1 from `tabPurchase Taxes and Charges` t
+					where t.parent=d.name {on_account}) {other})""",
+				{"company": ctx.company, "account": account},
 			)
 		if wrong and ctx.run.params.get("use_wizard_company"):
 			# the wizard company also holds the user's own documents; judge only the run's
@@ -393,7 +404,7 @@ class IndiaLocale(Locale):
 		if registered:
 			return Check("taxable documents have GST rows", not wrong, ", ".join(wrong[:5]) or "all present")
 		return Check(
-			"no GST on sales, purchase GST in cost (unregistered)",
+			"no GST on sales, purchase GST not recoverable (unregistered)",
 			not wrong,
 			", ".join(wrong[:5]) or "all as expected",
 		)

@@ -424,43 +424,50 @@ The demo does the set-up that such a business has to do by hand:
 - ERPNext does not add it by default. Without the set-up below, the purchase
   has no GST, and the amount owed to the supplier is too low.
 
-**Set-up: two purchase templates without ITC.** The demo creates these.
+**Set-up: an expense account and templates without ITC.** The demo creates these.
 A real unregistered company needs the same:
 
-| Template | Rows |
-| --- | --- |
-| Input GST In-state (no ITC) | CGST and SGST, as in "Input GST In-state" |
-| Input GST Out-state (no ITC) | IGST, as in "Input GST Out-state" |
+```
+Account                 GST Not Recoverable        (Expense Account, under Indirect Expenses)
+Purchase template       Input GST (not recoverable)
+  one row               account GST Not Recoverable, Consider Tax or Charge for:
+                        Valuation and Total, Add, On Net Total, rate 18
+Item Tax Templates      GST 5% (not recoverable), 12%, 18%, 28%
+  one row each          account GST Not Recoverable, rate = the full GST rate
+Items                   use those Item Tax Templates, so each item's own rate applies
+```
 
-To make one by hand:
+Why not india_compliance's Input Tax CGST/SGST/IGST accounts: they hold GST you can
+claim back. An unregistered business cannot, so its GST must never land there.
 
-1. Open *Purchase Taxes and Charges Template*.
-2. Duplicate your company's "Input GST In-state" (or "Out-state") template, and rename it.
-3. In every row, set **Consider Tax or Charge for** to **Valuation and Total** (Add or Deduct: Add).
-4. Leave Tax Category empty.
+What "Valuation and Total" does with each kind of purchase:
 
-"Valuation and Total" adds the GST to the item's valuation rate.
-So stock value and cost of goods sold include it.
-Each item's GST rate still comes from its Item Tax Template.
+```
+stock items (furniture, paper)    GST goes into the item's cost: stock value, then
+                                  cost of goods sold when the item is sold
+non-stock items (drinking water)  ERPNext changes the row to "Total" (no stock value to
+                                  add it to), so the GST is an expense when bought
+```
 
-**Using the templates:**
+This is the usual treatment: tax you cannot claim back is part of what goods cost
+(in India, section 145A of the Income-tax Act). The CGST/SGST/IGST split is not
+kept, since an unregistered business does not report it. GST is the same rate in-state
+and out-state, so one template covers both.
 
-- On a purchase order or invoice from a GST-registered supplier, pick a template:
-  in-state if the supplier is in your state, out-state otherwise.
+**Using the template:**
+
+- On a purchase order or invoice from a GST-registered supplier, pick
+  "Input GST (not recoverable)".
 - Receipts and invoices made from the order copy the tax rows.
 - Purchases from unregistered suppliers get no template.
 
-**Letting ERPNext pick the template.** Add two *Tax Rules* (Tax Type: Purchase, your company):
-
-```
-rule 1    Billing State = your state    template: Input GST In-state (no ITC)
-rule 2    no state                      template: Input GST Out-state (no ITC)
-# the more specific rule wins, so in-state suppliers get rule 1
-```
+**Letting ERPNext pick the template.** Add a *Tax Rule* (Tax Type: Purchase, your
+company, template: Input GST (not recoverable)).
 
 - A rule matches only suppliers with the same Tax Category (empty matches empty).
-- Give unregistered suppliers a Tax Category such as "Unregistered". Then no rule applies to them.
-- Do not just mark a template as the default. It would add GST to purchases from
+- Give unregistered suppliers a Tax Category such as "Unregistered". Then the rule
+  does not apply to them.
+- Do not just mark the template as the default. It would add GST to purchases from
   unregistered suppliers too.
 
 **Other rules the demo follows:**
@@ -473,11 +480,11 @@ rule 2    no state                      template: Input GST Out-state (no ITC)
 - **Turnover above the threshold.** The demo uses the pack's normal volume. That is above
   the registration threshold (Rs 40 lakh a year for goods; Rs 20 lakh in special-category
   states). Install prints a warning: a real business that size must register.
-- **Your own company.** With `--use-wizard-company --unregistered`, the two templates are
-  created in your company. Uninstall removes them, unless your own documents use them;
+- **Your own company.** With `--use-wizard-company --unregistered`, the account and the
+  templates are created in your company. Uninstall removes them, unless your own documents use them;
   those are kept and listed. To keep using them after uninstall, make your own copies.
 - `verify` checks that sales carry no GST, and that purchases from registered
-  suppliers carry GST rows marked "Valuation and Total".
+  suppliers carry GST only on GST Not Recoverable.
 
 ### United States
 
