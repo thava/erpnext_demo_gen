@@ -1,12 +1,13 @@
 """Tax templates: the orphaned-row workaround and the not-recoverable tax set-up.
 
-Orphaned rows.
+Orphaned rows: Company.on_trash deletes a company's tax templates (Sales/Purchase Taxes
+and Charges Templates, Item Tax Templates) with raw SQL, leaving their child rows:
 
-Company.on_trash deletes a company's Sales/Purchase Taxes and Charges Templates
-and Item Tax Templates with raw SQL, leaving their child rows behind. When a
-company with the same abbreviation is created later, india_compliance creates
-templates with the same names and the orphans reattach, so every tax row
-appears twice (or more) and GST is charged twice.
+    company deleted         -> its template rows stay behind
+    new company, same abbr  -> india_compliance creates templates with the same names
+                            -> the old rows reattach: every tax row twice, GST charged twice
+
+So: delete_template_rows before deleting a company, purge_orphans before creating one.
 """
 
 import frappe
@@ -43,9 +44,13 @@ def purge_orphans(abbr: str) -> int:
 
 
 def gst_fields(doc, rate: float = 0):
-	"""india_compliance validates every Item Tax Template on the site, whatever the company's
-	country: an Indian template is "Taxable" at its GST rate; another country's is
-	"Non-GST", which needs no rate."""
+	"""Fill india_compliance's GST fields on an Item Tax Template, whatever the country.
+
+	india_compliance validates every Item Tax Template on the site, not only Indian ones:
+
+	    Indian company      "Taxable" at its GST rate
+	    any other company   "Non-GST", which needs no rate
+	"""
 	if not doc.meta.has_field("gst_treatment"):
 		return
 	if frappe.get_cached_value("Company", doc.company, "country") == "India":
@@ -67,9 +72,10 @@ def ensure_not_recoverable(
 	tax_category: str | None = None,
 	no_tax_title: str | None = None,
 ) -> dict:
-	"""Accounts and templates for a business not registered for sales tax (--unregistered).
-	A registered supplier still charges the tax, but the buyer cannot
-	recover it. Neither ERPNext nor the country apps handle this; the user sets it up:
+	"""Accounts and templates for a business not registered for tax (--unregistered).
+
+	A registered supplier still charges the tax, but the buyer cannot recover it. Neither
+	ERPNext nor the country apps model this; a real user sets it up by hand:
 
 	    account   a "not recoverable" expense account, never the recoverable input-tax ones
 	    purchase  one template, one row on that account, "Valuation and Total":
@@ -85,6 +91,7 @@ def ensure_not_recoverable(
 
 	The templates carry no tax category of their own, so tax rules never pick them should
 	the company register. Everything goes through the registry, so uninstall removes it.
+
 	Returns the names: account, purchase, items {key: name}, no_tax_sales, no_tax_purchase,
 	tax_category.
 	"""
@@ -168,9 +175,14 @@ def ensure_not_recoverable(
 
 
 def ensure_no_itc_templates(run, company: str) -> dict:
-	"""India (--unregistered): account "GST Not Recoverable", template "Input GST (not
-	recoverable)", Item Tax Templates "GST 5% (not recoverable)" etc. at the item's full GST
-	rate (the CGST/SGST/IGST split is not kept; one template covers in- and out-state)."""
+	"""India's not-recoverable set-up (--unregistered).
+
+	    account     "GST Not Recoverable"
+	    template    "Input GST (not recoverable)"
+	    items       "GST 5% (not recoverable)" etc., at the item's full GST rate
+
+	The CGST/SGST/IGST split is not kept: one template covers in-state and out-of-state.
+	"""
 	from erpnext_demo_gen.locales.india import GST_RATES
 
 	return ensure_not_recoverable(

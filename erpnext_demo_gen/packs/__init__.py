@@ -1,10 +1,13 @@
 """Business packs: YAML files that describe a demo business.
 
-load_pack(id) reads <id>.yaml from this folder, resolves `extends` (child keys
-override the base; a list replaces the base list unless the child writes the key
-with a trailing "+", which appends), validates the result, and returns a plain
-dict. Validation is plain Python (jsonschema is not a frappe dependency) and reports
-every problem with its path, not just the first.
+    load_pack(id)   <id>.yaml from this folder
+                    -> resolve `extends`: child keys override the base; a child list
+                       replaces the base list, unless its key ends in "+" (appends)
+                    -> validate
+                    -> a plain dict
+
+Validation is plain Python (jsonschema is not a frappe dependency) and reports every
+problem with its path, not just the first.
 """
 
 import copy
@@ -30,8 +33,14 @@ class PackError(Exception):
 
 # ---------------------------------------------------------------- loading
 def list_packs(include_abstract: bool = False) -> list[dict]:
-	"""Every pack file: id (the file), pack (its name, shared by its country versions),
-	country (its locale code), title, version, sizes; and default_pack for country bases."""
+	"""Every pack file, with what the CLI and the page show about it.
+
+	    id          the file name
+	    pack        its name, shared by its country versions (furniture_store)
+	    country     its locale code
+	    title, version, sizes
+	    default_pack  for a country's base pack: its default concrete pack
+	"""
 	packs = []
 	for filename in sorted(os.listdir(PACK_DIR)):
 		if filename.endswith(".yaml"):

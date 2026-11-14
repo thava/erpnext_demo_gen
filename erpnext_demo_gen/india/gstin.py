@@ -1,9 +1,10 @@
 """Fictional but checksum-valid PAN and GSTIN values.
 
-A GSTIN is: 2-digit state code + 10-character PAN + entity number (1-9, A-Z)
-+ "Z" + a check character. The check character uses the same algorithm as
-india_compliance's validate_gstin_check_digit, so generated values pass it.
-PAN has no public checksum; its fourth letter gives the holder type.
+    GSTIN = state code (2) + PAN (10) + entity number (1-9, A-Z) + "Z" + check character
+
+The check character uses india_compliance's own algorithm (validate_gstin_check_digit),
+so generated values pass it. PAN has no public checksum; its fourth letter is the
+holder type (C: company, P: person, ...).
 """
 
 import random

@@ -1,7 +1,7 @@
 """Time estimates and progress lines for long commands (install, uninstall).
 
-Rates are measured on a laptop with MariaDB in Docker; they
-grow with database size, so estimates are rough by design.
+Rates were measured on a laptop with MariaDB in Docker and grow with database size,
+so estimates are rough by design.
 """
 
 import time

@@ -5,11 +5,11 @@ since the items, their tax data and prices are country-specific):
 
     masters     the supply suppliers, an item group, supply items (stock items counted
                 in their own warehouse with reorder levels; non-stock consumables)
-    each month  per department: a staff Material Request (type Material Issue), then a
-                Stock Entry issuing it from the supplies warehouse (expensed on issue)
-    reorder     when an item reaches its reorder level, a purchase Material Request the
-                next day (what ERPNext's daily reorder job would raise; the job itself
-                does not run during an install), then order, receipt, bill and payment
+    each month  per department: a staff Material Request (type Material Issue)
+                -> a Stock Entry issuing it from the supplies warehouse (expensed on issue)
+    reorder     an item at its reorder level -> a purchase Material Request the next day
+                (what ERPNext's daily reorder job would raise; that job does not run
+                during an install) -> order -> receipt -> bill -> payment
     consumables non-stock items (e.g. drinking water) ordered and billed monthly
 
 Own random streams ("supplies-*"), so packs without supplies plan exactly as before.
@@ -117,8 +117,10 @@ def plan_supplies(ctx, tl):
 		)
 
 	def buy_stock(order_date, lines, request: bool, opening: bool = False):
-		"""[purchase request ->] order -> receipt -> bill -> payment, for one supplier's lines.
-		Opening stock arrives the day it is ordered, like the trading stock's."""
+		"""One supplier's purchase: [request ->] order -> receipt -> bill -> payment.
+
+		Opening stock arrives the day it is ordered, like the trading stock's.
+		"""
 		receipt = order_date if opening else order_date + timedelta(days=rng.randint(2, 5))
 		po = {
 			"supplier": supplier_of(lines[0][0]),

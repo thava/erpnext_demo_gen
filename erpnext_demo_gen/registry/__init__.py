@@ -1,8 +1,10 @@
-"""Registry: Demo Data Run (one per install) and Demo Data Record (one per created document).
+"""Registry: Demo Data Run (one per install), Demo Data Record (one per created document).
 
-Every document the app creates goes through `Run.ensure`, which skips plan keys
-already recorded (resume) and writes the record in the same transaction as the
-document, so a crash loses both or neither.
+Every document the app creates goes through `Run.ensure`:
+
+    plan key already recorded   -> skip it (resume)
+    else                        -> create; record; commit both together
+                                   (a crash loses both or neither)
 """
 
 import json

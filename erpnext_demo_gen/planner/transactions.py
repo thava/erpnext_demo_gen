@@ -1,19 +1,21 @@
 """Transaction plan: funding, purchases and sales in date order.
 
-Approach:
-1. Spread sales over the range by the pack's seasonality: showroom invoices
-   (b2c, stock leaves with the invoice) and dealer orders (b2b: quotation, sales
-   order, delivery note, invoice), plus lost quotations.
-2. Mark state coverage: drafts near the end, cancellations, returns, partial
-   deliveries, and payment outcomes (on time, late, partly paid, open/overdue).
-3. Walk the calendar with a stock ledger: receipts land before same-day sales,
-   a shortfall triggers an emergency purchase dated before the sale, and items
-   below their reorder level get a material request and purchase order. Stock
-   therefore never goes negative and nothing is back-dated, so ERPNext queues no stock reposts.
-4. Simulate the bank balance and raise the opening term loan if needed, so the
-   bank never goes negative.
-5. Sort everything by (date, stage, creation order) and give each document a
-   strictly increasing posting time within its day.
+1. Sales over the range, by the pack's seasonality:
+     showroom   invoices (b2c; stock leaves with the invoice)
+     dealers    quotation -> sales order -> delivery note -> invoice (b2b)
+     lost       quotations that never convert
+2. State coverage: drafts near the end, cancellations, returns, partial deliveries,
+   and payment outcomes (on time, late, partly paid, open, overdue).
+3. Walk the calendar with a stock ledger:
+     receipts land before same-day sales
+     a shortfall -> an emergency purchase dated before the sale
+     below reorder level -> a material request and purchase order
+   So stock never goes negative and nothing is back-dated: ERPNext then queues no stock
+   reposts (a document dated before existing ones makes ERPNext revalue later ones).
+4. Simulate the bank balance; raise the opening term loan if needed, so the bank never
+   goes negative.
+5. Sort by (date, stage, creation order); give each document a strictly increasing
+   posting time within its day.
 """
 
 import math
@@ -124,8 +126,10 @@ def month_starts(start: date, end: date) -> list[date]:
 def spread_over_months(
 	total: int, start: date, end: date, seasonality: list[float], first_month: int = 4
 ) -> list[tuple[date, date, int]]:
-	"""[(first_day, last_day, count)] per month in range, weighted by seasonality
-	(index 0 = first_month: the locale's fiscal year start; India: April)."""
+	"""[(first_day, last_day, count)] per month in the range, weighted by seasonality.
+
+	Seasonality index 0 is first_month: the locale's fiscal year start (India: April).
+	"""
 	spans = []
 	for m in month_starts(start, end):
 		next_m = date(m.year + (m.month == 12), m.month % 12 + 1, 1)
@@ -468,9 +472,12 @@ def counter_modes(pack: dict | None = None) -> tuple[str, ...]:
 
 
 def mode_name(banking: dict, mode: str, account: str, collected_at_counter=None) -> str:
-	"""The Mode of Payment name: modes the counter collects carry the receiving bank
-	("UPI - ICICI"), since ERPNext maps a mode to one account per company; others are
-	ERPNext's own."""
+	"""The Mode of Payment name for a planned payment.
+
+	Modes the counter collects carry the receiving bank ("UPI - ICICI"): ERPNext maps a
+	mode to one account per company, so each bank needs its own mode. Others keep
+	ERPNext's own name.
+	"""
 	if mode in (counter_modes() if collected_at_counter is None else collected_at_counter):
 		return f"{mode} - {banking[account]['short']}"
 	return mode
@@ -529,10 +536,11 @@ def refund_method(ctx, paid: dict, when: date) -> dict:
 
 
 def ensure_payment_modes(ctx, tl: Timeline):
-	"""Every planned payment mode is used at least once, so each shows up in the demo
-	even at small size: when one is missing, the smallest suitable payment of a payer
-	that uses it switches to it. Counter payments that are later refunded keep their
-	mode (the refund goes back the same way). Larger sizes are rarely touched.
+	"""Use every planned payment mode at least once, so each shows even at small size.
+
+	When a mode is missing, the smallest suitable payment of a payer that uses it switches
+	to it. Counter payments that are later refunded keep their mode (the refund goes back
+	the same way). Larger sizes rarely need a switch.
 	"""
 	banking = ctx.pack["banking"]
 	collected = ctx.locale.counter_modes
@@ -576,9 +584,11 @@ def ensure_payment_modes(ctx, tl: Timeline):
 
 
 def split_by_limit(ctx, tl: Timeline, payments: list, refunded: set, mode: str, limit: float):
-	"""Every credit payment is above the mode's limit (India: UPI): the smallest one is
-	split, part paid by that mode first on the same day (under the limit), the rest the
-	usual way."""
+	"""Make sure a mode with a limit (India: UPI) still appears.
+
+	When every credit payment is above the limit, the smallest one is split: part paid by
+	that mode first, on the same day and under the limit; the rest the usual way.
+	"""
 	whole = [
 		e
 		for e in payments
@@ -611,14 +621,20 @@ def split_by_limit(ctx, tl: Timeline, payments: list, refunded: set, mode: str, 
 
 
 def plan_bank_transfers(ctx, tl: Timeline):
-	"""Every week, on the sweep weekday, move what the collection account and the cash
-	box hold into the main account (Internal Transfer); the builder reads the amount
-	from the ledger that morning.
+	"""Weekly sweeps of the collection account and the cash box into the main account.
 
-	A running balance per account decides whether there is anything to move: receipts
-	add, counter refunds (card and UPI reversals come out of the collection account)
-	subtract, and each transfer empties it. Amounts are exact (counter prices include
-	GST), so a planned transfer never finds the account empty.
+	On the sweep weekday, an Internal Transfer moves what they hold; the builder reads the
+	amount from the ledger that morning.
+
+	A running balance per account decides whether there is anything to move:
+
+	    receipts                        add
+	    counter refunds                 subtract (card and UPI reversals leave the
+	                                    collection account)
+	    a transfer                      empties it
+
+	Amounts are exact (counter prices include GST), so a planned transfer never finds the
+	account empty.
 	"""
 	banking = ctx.pack["banking"]
 	weekday = banking["sweep_weekday"]
@@ -665,8 +681,10 @@ def plan_bank_transfers(ctx, tl: Timeline):
 
 
 def plan_customer_payment(ctx, tl, rng, si_key, si_date, amount, days):
-	"""Schedule receipts for an invoice. Returns the payment method when paid on the
-	spot (at the counter), else None."""
+	"""Schedule the receipts for an invoice.
+
+	Returns the payment method when paid on the spot (at the counter), else None.
+	"""
 	end = ctx.end_date
 
 	def receipt(when, fraction=None, last=True, payer="customer"):
@@ -708,10 +726,12 @@ def plan_customer_payment(ctx, tl, rng, si_key, si_date, amount, days):
 
 
 def ensure_open_order(ctx, tl: Timeline):
-	"""At least one sales order is still to deliver and bill at the end, so that state
-	shows even in a small plan: when every order is delivered, the latest one whose
-	deliveries were never cancelled or returned keeps them (and their invoices and
-	payments) unmade. Plans that already have one are untouched."""
+	"""Leave one sales order still to deliver and bill, so that state shows even when small.
+
+	When every order is delivered, the latest one whose deliveries were never cancelled or
+	returned keeps them (and their invoices and payments) unmade. Plans that already have
+	such an order are untouched.
+	"""
 	orders = [e for e in tl.events if e.builder == "sales_order"]
 	deliveries = defaultdict(list)
 	for e in tl.events:
@@ -741,9 +761,11 @@ def ensure_open_order(ctx, tl: Timeline):
 
 
 def ensure_overdue(ctx, tl: Timeline):
-	"""At least one credit invoice is open past its due date, so the Overdue state shows
-	even in a small plan: when none is, the latest eligible one keeps its payments
-	unmade. Plans that already have one are untouched."""
+	"""Leave one credit invoice open past its due date, so Overdue shows even when small.
+
+	When none is, the latest eligible one keeps its payments unmade. Plans that already
+	have one are untouched.
+	"""
 	end = ctx.end_date
 	invoices = [
 		e
@@ -771,10 +793,14 @@ def ensure_overdue(ctx, tl: Timeline):
 
 # ---------------------------------------------------------------- stock and purchases
 def fit_reorder_levels(plan: Plan, tl: Timeline, items: dict[str, ItemInfo]):
-	"""Raise pack reorder levels to the planned demand: at least 2 weeks' sales as the
-	minimum and 4 more weeks on top as the maximum. Without this, a larger size keeps
-	running out between weekly purchases and is resupplied by emergency orders.
-	The item masters get the same levels, so ERPNext's reorder settings match the plan.
+	"""Raise the pack's reorder levels to the planned demand.
+
+	    minimum     at least 2 weeks' sales
+	    maximum     the minimum + 4 more weeks
+
+	Without this, a larger size keeps running out between weekly purchases and is
+	resupplied by emergency orders. The item masters get the same levels, so ERPNext's
+	reorder settings match the plan.
 	"""
 	weeks = max(1.0, days_between(plan.ctx.start_date, plan.ctx.end_date) / 7)
 	demand = defaultdict(int)

@@ -1,16 +1,18 @@
 """Tier A uninstall: remove a run's transactions one by one, using the registry.
 
-For demo data generated into a company the user keeps (--use-wizard-company), so
-ERPNext's company-wide Transaction Deletion Record cannot be used. Walking the
-registry newest first, each submitted or cancelled document is removed the way
-Transaction Deletion Record removes rows: its ledger rows (GL, payment ledger,
-stock ledger, ...) are deleted, then the document and its child rows. Nothing is
-cancelled, so no reversal entries or reposts are created.
+For demo data in a company the user keeps (--use-wizard-company), where ERPNext's
+company-wide Transaction Deletion Record cannot be used.
 
-A document is kept, and reported, when anything outside the run still refers to
-it, e.g. a payment the user made against a demo invoice. Afterwards, bins are
-recomputed for every item and warehouse the removed stock entries touched, and
-where the user's own stock entries follow the removed ones, valuation is
+    registry, newest first -> for each submitted or cancelled document:
+        delete its ledger rows (GL, payment ledger, stock ledger, ...)
+        -> delete the document and its child rows
+    nothing is cancelled: no reversal entries, no reposts
+
+A document is kept, and reported, when anything outside the run still refers to it
+(e.g. a payment the user made against a demo invoice).
+
+Afterwards: bins are recomputed for every item and warehouse the removed stock entries
+touched; where the user's own stock entries follow the removed ones, valuation is
 reposted from the earliest removed date.
 """
 
@@ -81,8 +83,11 @@ def remove_transaction(doctype: str, name: str, run_docs: set, stock: StockTouch
 
 
 def hard_delete(doc):
-	"""Remove a document and its child rows without the submitted-document check, as
-	Transaction Deletion Record does, plus the logs that follow it."""
+	"""Remove a document and its child rows, even when submitted.
+
+	Skips the submitted-document check, as Transaction Deletion Record does, and also
+	removes the logs that follow the document.
+	"""
 	for df in doc.meta.get_table_fields():
 		frappe.db.delete(df.options, {"parent": doc.name, "parenttype": doc.doctype})
 	frappe.db.delete(doc.doctype, {"name": doc.name})

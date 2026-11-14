@@ -1,15 +1,17 @@
 """Uninstall a demo run without touching the user's own data.
 
 Order (each step needs the one before it):
+
 1. Restore the previous default company.
-2. Transactions. Tier B (default for a company the run created): ERPNext's
-   Transaction Deletion Record for the whole company, in-process. Tier A (for
-   --use-wizard-company runs, or with registry_only): each registered
-   transaction with its ledger rows, newest first (tier_a.py); the user's own
-   documents in the same company are untouched.
-3. Walk the registry in reverse creation order and delete what remains. A record
-   that is still linked from non-demo data is skipped and reported, not forced.
-   The company comes last because it was created first.
+2. Transactions:
+     tier B   the demo's own company (default): ERPNext's Transaction Deletion Record
+              for the whole company, in-process
+     tier A   wizard mode (the user's company), or registry_only: each registered
+              transaction with its ledger rows, newest first (tier_a.py); the user's
+              own documents in the same company are untouched
+3. The rest of the registry, in reverse creation order. A record still linked from
+   non-demo data is skipped and reported, not forced. The company goes last: it was
+   created first.
 """
 
 from collections import defaultdict
@@ -189,8 +191,10 @@ def delete_registered(run: Run, log=print) -> list[str]:
 
 
 def safety_backup(log=print):
-	"""Back up the site before removing demo data from the user's own company (wizard
-	mode), as bench drop-site and uninstall-app do; skipped with --no-backup."""
+	"""Back up the site before removing demo data from the user's own company.
+
+	Wizard mode only, as bench drop-site and uninstall-app do; skipped with --no-backup.
+	"""
 	from frappe.utils.backups import scheduled_backup
 
 	log("Backing up the site first, since the demo data is in your own company (skip with --no-backup)")

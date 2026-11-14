@@ -1,15 +1,14 @@
 """End-to-end smoke test: install, verify, uninstall, and prove nothing else changed.
 
-Not a unit test (it commits and takes minutes), so it is not named test_*.py.
-Run it on a disposable site that already has some non-demo data, e.g.:
+Not a unit test (it commits and takes minutes), so it is not named test_*.py. Run it
+on a disposable site that already has some non-demo data, e.g.:
 
-    bench --site demo-data.localhost execute erpnext_demo_gen.tests.smoke.run \
+    bench --site demo-data.localhost execute erpnext_demo_gen.tests.smoke.run \\
         --kwargs '{"country": "IN", "pack": "furniture_store", "seed": 11}'
 
-It snapshots row counts of the tables a demo touches, installs, runs verify,
-uninstalls, and fails if any count differs from the snapshot (uninstall left
-something behind or removed the user's data) or if
-the default company was not restored.
+    count rows of every table a demo touches -> install -> verify -> uninstall
+    -> count again: any difference fails (uninstall left something behind or removed
+       the user's data), as does a default company that was not restored
 """
 
 import frappe

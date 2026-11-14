@@ -79,8 +79,11 @@ class IndiaLocale(Locale):
 		return {"gst_category": "Unregistered"}
 
 	def customer_category(self, rng: random.Random, behavior: dict, sales_tax: bool) -> tuple[bool, str]:
-		"""Drawn from behavior.gst_categories. An unregistered seller cannot supply SEZ
-		units (an inter-state supply, which needs GST registration at any turnover)."""
+		"""A customer's GST category, drawn from behavior.gst_categories.
+
+		An unregistered seller gets no SEZ customers: supplies to SEZ units are inter-state,
+		and inter-state supplies need GST registration at any turnover.
+		"""
 		category = weighted(rng, behavior["gst_categories"])
 		if category == "sez" and not sales_tax:
 			category = "registered"
@@ -137,9 +140,12 @@ class IndiaLocale(Locale):
 		}
 
 	def wants_company_address(self, params) -> bool:
-		"""The GSTIN lives on the company address: none with --unregistered. In wizard mode the
-		company has none of its own (a company with a tax ID is refused), so the address
-		carries a made-up one."""
+		"""Whether the demo adds a company address: it carries the GSTIN.
+
+		    registered     yes; india_compliance reads the company's GSTIN from it
+		    wizard mode    yes, with a made-up GSTIN (a company that already has one is refused)
+		    --unregistered no
+		"""
 		return params.get("registration") != "unregistered"
 
 	def company_address(self, rng: random.Random, company: str, region: str, wizard: bool) -> dict:
@@ -168,8 +174,11 @@ class IndiaLocale(Locale):
 		return date(fy_start.year + 1, 3, 31)
 
 	def setup_taxes(self, run, company: str, abbr: str, pack: dict):
-		"""No-ITC purchase templates for an unregistered company (--unregistered), and GST
-		Settings' SEZ switch when the pack sells to SEZ units."""
+		"""GST set-up beyond what india_compliance creates with the company.
+
+		    --unregistered    the not-recoverable account and templates (no input tax credit)
+		    SEZ customers     GST Settings' SEZ switch (_enable_sez)
+		"""
 		from erpnext_demo_gen.setup.tax_templates import ensure_no_itc_templates
 
 		if run.params.get("registration") == "unregistered":
@@ -187,10 +196,13 @@ class IndiaLocale(Locale):
 		return [f"GSTIN {gstin} (on the company address)", f"PAN {gstin[2:12]}"] if gstin else []
 
 	def _show_registration(self, run, company: str):
-		"""india_compliance reads the GSTIN from the company address, but the Company record
-		itself would still say GST Category "Unregistered" with no GSTIN. Show the
-		registration there too; a company that stays (wizard mode) gets its values back
-		on uninstall."""
+		"""Show the GSTIN and "Registered Regular" on the Company record too.
+
+		india_compliance reads the GSTIN from the company address, so the Company record
+		itself would still say GST Category "Unregistered" with no GSTIN, which looks wrong
+		to anyone opening it. A company that stays (wizard mode) gets its values back on
+		uninstall.
+		"""
 		import frappe
 
 		gstin = frappe.db.get_value(
@@ -206,10 +218,12 @@ class IndiaLocale(Locale):
 		frappe.db.set_value("Company", company, {"gstin": gstin, "gst_category": "Registered Regular"})
 
 	def _enable_sez(self, run, pack: dict):
-		"""SEZ customers need GST Settings' "Enable SEZ / Overseas Transactions", as a real
-		business with SEZ customers would have; india_compliance refuses their orders
-		otherwise. A site-wide setting, so the previous value is recorded and uninstall
-		restores it. Not needed without GST (--unregistered plans no SEZ customers)."""
+		"""Turn on GST Settings' "Enable SEZ / Overseas Transactions" for SEZ customers.
+
+		india_compliance refuses SEZ customers' orders without it, and a real business with
+		SEZ customers would have it on. It is site-wide, so the previous value is recorded and
+		uninstall restores it. Not needed with --unregistered (no SEZ customers are planned).
+		"""
 		import frappe
 
 		if not pack["behavior"]["gst_categories"].get("sez") or run.params.get("registration") == "unregistered":
@@ -231,8 +245,11 @@ class IndiaLocale(Locale):
 
 	# ---------------------------------------------------------- writing documents
 	def writer_context(self, run, company: str) -> dict:
-		"""Item Tax Templates by GST rate: india_compliance's ("GST 18% - ABC"), or with
-		--unregistered the demo's not-recoverable ones; and the India territory."""
+		"""Item Tax Templates by GST rate, and the India territory.
+
+		    registered      india_compliance's templates ("GST 18% - ABC")
+		    --unregistered  the demo's not-recoverable ones ("GST 18% (not recoverable)")
+		"""
 		import frappe
 		from frappe.utils.nestedset import get_root_of
 
@@ -254,8 +271,11 @@ class IndiaLocale(Locale):
 		}
 
 	def party_fields(self, p, w) -> dict:
-		"""Fields india_compliance's party hooks use: GSTIN and category, and _address_line1
-		etc. for the primary address its after_insert hook creates."""
+		"""Fields india_compliance's party hooks read: GSTIN, GST category, address.
+
+		The _address_line1, city, state and pincode fields are not stored on the party:
+		india_compliance's after_insert hook turns them into the party's primary Address.
+		"""
 		address = p.get("address") or {}
 		fields = {"gst_category": p.gst_category, "country": "India"}
 		if p.get("gstin"):
@@ -279,10 +299,14 @@ class IndiaLocale(Locale):
 		return {"gst_hsn_code": p.hsn, "taxes": [{"item_tax_template": w.item_tax_template(p.gst_rate)}]}
 
 	def purchase_taxes(self, doc, w):
-		"""Unregistered company (--unregistered): india_compliance turns off all GST handling,
-		so nothing picks a template; select the
-		no-ITC one for a registered supplier, as the user would; an unregistered supplier
-		charges none. A registered company keeps what ERPNext picks."""
+		"""Pick the not-recoverable purchase template for an unregistered company.
+
+		    registered company      keeps what ERPNext and india_compliance pick
+		    unregistered company    india_compliance turns off all GST handling, so nothing
+		                            picks a template; select the no-ITC one, as the user would:
+		                              registered supplier   -> GST on the not-recoverable account
+		                              unregistered supplier -> no GST
+		"""
 		if w.tax_registered:
 			return
 		import frappe
@@ -344,8 +368,11 @@ class IndiaLocale(Locale):
 			check(isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 1, f"banking.{key}", "must be a positive number")
 
 	def company_tax_id(self, company: str) -> str | None:
-		"""India keeps the GSTIN on the Company (india_compliance's field) or, the usual
-		place, on the company's own address; without one the company counts as unregistered."""
+		"""The company's GSTIN, or None.
+
+		india_compliance keeps it on the Company (its gstin field) or, more usually, on the
+		company's own address. Without either, the company counts as unregistered.
+		"""
 		import frappe
 
 		if super().company_tax_id(company):
@@ -375,9 +402,12 @@ class IndiaLocale(Locale):
 		return f"GSTIN on address {real[0].name}" if real else None
 
 	def check_wizard_company(self, company: str, params: dict, home_region: str | None, unregistered: bool):
-		"""A company without a GSTIN is unregistered for india_compliance, which then charges
-		no GST. Registered (the default): the demo adds a labelled company address
-		with a made-up GSTIN, removed on uninstall. --unregistered: no address, no GST."""
+		"""Wizard mode: add a made-up GSTIN, unless --unregistered.
+
+		A company without a GSTIN is unregistered for india_compliance, which then charges
+		no GST at all. So by default the demo adds a labelled company address with a made-up
+		GSTIN (removed on uninstall); --unregistered adds no address and charges no GST.
+		"""
 		super().check_wizard_company(company, params, home_region, unregistered)
 		if not unregistered:
 			params["fictitious_gstin"] = True  # setup adds the address; uninstall removes it
@@ -389,11 +419,16 @@ class IndiaLocale(Locale):
 	def _gst_rows(self, ctx):
 		"""GST rows match the company's registration.
 
-		Registered: every submitted sale and every purchase from a GST-registered
-		supplier carries GST rows, except zero-rated SEZ and export supplies made without
-		GST (under a bond). Unregistered (--unregistered): sales carry none, and those
-		purchases carry GST only on the "GST Not Recoverable" expense account, since
-		no credit can be claimed: in the cost of stock items, an expense for the rest.
+		Registered:
+		    sales, purchases from a GST-registered supplier   GST rows on every submitted one
+		    except                                            zero-rated SEZ and export supplies
+		                                                      made under a bond (no GST)
+		Unregistered (--unregistered):
+		    sales                                             no GST
+		    purchases from a GST-registered supplier          GST only on the "GST Not Recoverable"
+		                                                      expense account (no credit can be
+		                                                      claimed): in the cost of stock items,
+		                                                      an expense for the rest
 		"""
 		import frappe
 

@@ -1,10 +1,10 @@
 """United Arab Emirates: 5% VAT with input credit, emirates, TRNs, AED.
 
-What a VAT-registered UAE trading business looks like in ERPNext's own UAE set-up
+A VAT-registered UAE trading business in ERPNext's own UAE set-up
 (erpnext/regional/united_arab_emirates; the UAE VAT 201 report):
 
-    sales       5% VAT ("UAE VAT 5%"); shelf prices include VAT (UAE consumer rules)
-                each invoice carries its VAT Emirate (box 1a-1g of VAT 201), which
+    sales       5% VAT ("UAE VAT 5%"); shelf prices include VAT (UAE consumer rules);
+                each invoice carries its VAT Emirate (boxes 1a-1g of VAT 201), which
                 ERPNext fetches from the company address's Emirate field
     purchases   5% VAT from VAT-registered suppliers, recoverable: each bill records it
                 as "Recoverable Standard Rated Expenses" (box 9)
@@ -12,13 +12,16 @@ What a VAT-registered UAE trading business looks like in ERPNext's own UAE set-u
                 the VAT 201 report use it)
 
 Unregistered (--unregistered; registration is mandatory above AED 375,000 of taxable
-supplies in 12 months): sales carry no VAT and the company has no TRN; VAT paid on
-purchases cannot be recovered, so it goes to a "VAT Not Recoverable" expense account
-through "Valuation and Total" rows (in the cost of stock items, an expense for the rest); VAT Emirate and
-the VAT 201 report do not apply.
+supplies in 12 months):
 
-Out of scope for the demo: imports and reverse charge, zero-rated exports, tourist
-refunds, excise, designated zones. General information, not tax advice.
+    sales       no VAT; the company has no TRN
+    purchases   VAT paid cannot be recovered: a "VAT Not Recoverable" expense account
+                through "Valuation and Total" rows (in the cost of stock items, an
+                expense for the rest)
+    VAT 201     does not apply, nor does VAT Emirate
+
+Out of scope: imports and reverse charge, zero-rated exports, tourist refunds, excise,
+designated zones. General information, not tax advice.
 """
 
 import random
@@ -173,9 +176,13 @@ class AELocale(Locale):
 		return {"iban": number, "bank_account_no": number[-16:], "branch_code": bank["swift"]}
 
 	def setup_taxes(self, run, company: str, abbr: str, pack: dict):
-		"""ERPNext creates "UAE VAT 5%" templates (and excise and zero-rate ones) with the
-		company. Make the 5% ones the defaults and list their account in UAE VAT Settings.
-		Unregistered: none of that; the not-recoverable account and templates instead."""
+		"""Make ERPNext's 5% VAT templates the company's defaults.
+
+		ERPNext creates "UAE VAT 5%" templates (and excise and zero-rate ones) with the
+		company; this sets the 5% ones as defaults and lists their account in UAE VAT
+		Settings. Unregistered: none of that; the not-recoverable account and templates
+		instead.
+		"""
 		import frappe
 
 		if run.params.get("registration") == "unregistered":
@@ -275,8 +282,10 @@ class AELocale(Locale):
 		return {}
 
 	def purchase_taxes(self, doc, w):
-		"""A supplier with a TRN charges 5% VAT; one without a TRN is not registered and
-		charges none. Unregistered company: that VAT is a cost (not recoverable)."""
+		"""5% VAT from a supplier with a TRN; none from one without (not registered).
+
+		Unregistered company: that VAT is a cost (not recoverable).
+		"""
 		import frappe
 
 		registered = frappe.db.get_value("Supplier", doc.supplier, "tax_id")
@@ -347,10 +356,14 @@ class AELocale(Locale):
 
 	# ---------------------------------------------------------- verify
 	def tax_checks(self, ctx) -> list:
-		"""UAE: every sale carries 5% VAT and its VAT Emirate; every bill records its VAT as
-		recoverable; the UAE VAT 201 report's boxes 1 (output VAT) and 9 (recoverable input
-		VAT) agree with the invoices. Unregistered: no VAT on sales, purchase VAT not
-		recoverable; VAT 201 does not apply."""
+		"""UAE VAT checks, registered or not.
+
+		Registered:
+		    sales       5% VAT and a VAT Emirate on every one
+		    bills       VAT recorded as recoverable
+		    VAT 201     box 1 (output VAT) and box 9 (recoverable input VAT) agree with the invoices
+		Unregistered: no VAT on sales, purchase VAT not recoverable; VAT 201 does not apply.
+		"""
 		if ctx.run.params.get("registration") == "unregistered":
 			return self.unregistered_checks(ctx, "VAT")
 		import frappe

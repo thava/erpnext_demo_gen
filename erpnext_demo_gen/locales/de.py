@@ -1,7 +1,7 @@
 """Germany: 19% / 7% VAT (Umsatzsteuer) with input credit, SKR04 chart, Bundesländer, EUR.
 
-What a VAT-registered German trading business (GmbH) looks like in ERPNext's own German
-set-up (country_wise_tax.json for the "SKR04 mit Kontonummern" chart):
+A VAT-registered German trading business (GmbH) in ERPNext's own German set-up
+(country_wise_tax.json for the "SKR04 mit Kontonummern" chart):
 
     chart       SKR04, the DATEV chart most GmbHs use; ERPNext creates its tax
                 templates with the company
@@ -13,18 +13,20 @@ set-up (country_wise_tax.json for the "SKR04 mit Kontonummern" chart):
     prices      consumer prices include VAT (Preisangabenverordnung)
     return      the monthly VAT return (UStVA) is output VAT minus input VAT
 
-Kleinunternehmer (--unregistered; § 19 UStG, limits since 2025: previous year's net
-turnover <= EUR 25,000 and current year's <= EUR 100,000): sales carry no VAT, income goes
-to SKR04's "Erlöse aus Kleinunternehmer", and every invoice carries the § 19 note (Terms
-and Conditions); the company has no USt-IdNr. (its Steuernummer is not modelled). VAT paid
-on purchases cannot be deducted: "Valuation and Total" rows on a "Nicht abziehbare
-Vorsteuer" expense account, at each item's rate (in the cost of stock items, an expense for the rest).
+Kleinunternehmer (--unregistered; § 19 UStG; limits since 2025: previous year's net
+turnover <= EUR 25,000, current year's <= EUR 100,000):
 
-Furniture is 19%; staff coffee is food at 7%; bottled water is 19% (only tap water
-is reduced). Out of scope for the demo: EU and non-EU trade (reverse charge,
-innergemeinschaftlicher Erwerb), Kleinunternehmer suppliers, § 13b construction
-services, DATEV export, e-invoicing (XRechnung / ZUGFeRD). General information, not
-tax advice.
+    sales       no VAT; income to SKR04's "Erlöse aus Kleinunternehmer"; every invoice
+                carries the § 19 note (Terms and Conditions)
+    purchases   VAT cannot be deducted: "Valuation and Total" rows on a "Nicht
+                abziehbare Vorsteuer" expense account, at each item's rate (in the cost
+                of stock items, an expense for the rest)
+    IDs         no USt-IdNr.; a Steuernummer only (not modelled beyond the text)
+
+Rates: furniture 19%; staff coffee is food at 7%; bottled water 19% (only tap water is
+reduced). Out of scope: EU and non-EU trade (reverse charge, innergemeinschaftlicher
+Erwerb), Kleinunternehmer suppliers, § 13b construction services, DATEV export,
+e-invoicing (XRechnung / ZUGFeRD). General information, not tax advice.
 """
 
 import random
@@ -76,8 +78,10 @@ LEGAL_SUFFIXES = ["GmbH", "GmbH", "GmbH & Co. KG", "KG", "e.K.", "AG"]
 
 
 def vat_id(rng: random.Random) -> str:
-	"""A German VAT ID (USt-IdNr.) with a valid check digit (made up): DE + 8 digits +
-	an ISO 7064 MOD 11,10 check digit."""
+	"""A made-up German VAT ID (USt-IdNr.) with a valid check digit.
+
+	    DE + 8 digits + an ISO 7064 MOD 11,10 check digit
+	"""
 	digits = [rng.randint(1, 3)] + [rng.randint(0, 9) for _ in range(7)]
 	product = 10
 	for d in digits:
@@ -220,10 +224,16 @@ class DELocale(Locale):
 		return {"iban": number, "bank_account_no": number[-10:], "branch_code": bank["bic"]}
 
 	def setup_taxes(self, run, company: str, abbr: str, pack: dict):
-		"""ERPNext creates the SKR04 tax templates with the company. Correct the company
-		defaults it picks wrongly from SKR04 (only while they are still its wrong pick)
-		and remember the templates and VAT accounts. A Kleinunternehmer keeps ERPNext's
-		income pick (4185) and gets the non-deductible set-up and the § 19 note."""
+		"""Fix the company defaults ERPNext picks wrongly from SKR04; remember the templates.
+
+		ERPNext creates the SKR04 tax templates with the company, but takes the first account
+		of each type as a default (e.g. income to 4185, the Kleinunternehmer account). Each
+		default is corrected only while it is still that wrong pick, so a user's own choice
+		stays. Then the templates and VAT accounts are recorded for the writers.
+
+		A Kleinunternehmer keeps the 4185 income pick (it is right for them) and gets the
+		non-deductible set-up and the § 19 note.
+		"""
 		import frappe
 
 		unregistered = run.params.get("registration") == "unregistered"
@@ -330,9 +340,11 @@ class DELocale(Locale):
 		return fields
 
 	def item_fields(self, p, w) -> dict:
-		"""The item's VAT rate comes from its Item Tax Template ("19 %" or "7 %"). A
-		Kleinunternehmer's items carry only the non-deductible one, under a tax category
-		that only purchases use, so sales lines get no VAT rate."""
+		"""The item's Item Tax Template, which sets its VAT rate ("19 %" or "7 %").
+
+		A Kleinunternehmer's items carry only the non-deductible template, under a tax
+		category that only purchases use: purchase lines get the rate, sales lines none.
+		"""
 		vat_class = p.get("vat_class") or "standard"
 		if not w.tax_registered:
 			nr = w.locale_data["not_recoverable"]
@@ -367,10 +379,13 @@ class DELocale(Locale):
 
 	@staticmethod
 	def _fill(doc, template: str):
-		"""Set the template and its rows before the first save. ERPNext adds tax rows only
-		to a document without any; with "Automatically add Taxes and Charges from Item
-		Tax Template" on (its default) it would also add a row for every account of the
-		item's template: input VAT, EU and reverse-charge accounts, each at 19%."""
+		"""Set the template and its rows before the first save.
+
+		ERPNext adds tax rows only to a document that has none. Left to itself, with "Automatically
+		add Taxes and Charges from Item Tax Template" on (its default), it would also add a row
+		for every account of the item's template: input VAT, EU and reverse-charge accounts,
+		each at 19%.
+		"""
 		doc.taxes_and_charges = template
 		doc.set("taxes", [])
 		append_template_taxes(doc)
@@ -398,8 +413,10 @@ class DELocale(Locale):
 		return ", ".join(f"{code} ({name})" for code, name in STATE_CODES.items())
 
 	def registration_lines(self, run, company: str) -> list[str]:
-		"""USt-IdNr. (the Tax ID) and a Steuernummer in Bavaria's format (FFF/BBB/UUUUP);
-		a Kleinunternehmer has the Steuernummer only."""
+		"""USt-IdNr. and a Steuernummer in Bavaria's format (FFF/BBB/UUUUP).
+
+		The USt-IdNr. is also the Company's Tax ID; a Kleinunternehmer has the Steuernummer only.
+		"""
 		import frappe
 
 		rng = random.Random(f"{run.params.seed}:company-steuernummer")
@@ -444,9 +461,13 @@ class DELocale(Locale):
 
 	# ---------------------------------------------------------- verify
 	def tax_checks(self, ctx) -> list:
-		"""Germany: every invoice's VAT matches its items' rates (19% or 7%); the VAT
-		accounts agree with the invoices (output VAT, input VAT: the UStVA totals).
-		Kleinunternehmer: no VAT on sales and the § 19 note; non-deductible VAT on bills."""
+		"""German VAT checks, registered or Kleinunternehmer.
+
+		Registered:
+		    invoices    VAT matches the items' rates (19% or 7%)
+		    accounts    output and input VAT agree with the invoices (the UStVA totals)
+		Kleinunternehmer: no VAT and the § 19 note on sales; non-deductible VAT on bills.
+		"""
 		import frappe
 		from frappe.utils import flt
 

@@ -1,7 +1,9 @@
-"""Desk entry points (the DemoGen page). System Managers only.
+"""Desk entry points for the DemoGen page; System Managers only.
 
-Thin wrappers over erpnext_demo_gen.service, like the CLI: the page validates an
-install the way the CLI does, then a long-queue job (jobs.py) runs it.
+Thin wrappers over erpnext_demo_gen.service, like the CLI:
+
+    page -> start_install: the CLI's checks, nothing written
+         -> jobs.enqueue: a long-queue job (jobs.py) runs the install
 """
 
 import frappe
@@ -182,9 +184,13 @@ def start_install(
 	unregistered: int = 0,
 	force: int = 0,
 ) -> dict:
-	"""Check the install as the CLI would, then queue it. A refusal the user may override
-	comes back as {"confirm": reason, "question": ...}; the page asks, then calls again with
-	force=1 (the CLI's --force)."""
+	"""Check the install as the CLI would, then queue it.
+
+	A refusal the user may override (the CLI's --force) does not raise:
+
+	    -> {"confirm": reasons, "question": ...}   the page asks the user
+	    -> start_install(..., force=1)             called again once confirmed
+	"""
 	_check()
 	if size not in PAGE_SIZES:
 		frappe.throw(_("The page installs small or medium demos; use the CLI for {0}").format(size))

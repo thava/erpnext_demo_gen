@@ -1,11 +1,12 @@
 """Writers execute a plan against the site.
 
-ApiWriter (tier 1) goes through ERPNext's own insert and submit paths, one
-document per transaction, committed together with its registry row. A
-failure rolls back only that document and is recorded as Failed with its error;
-dependants are recorded as Skipped (skip and log); transient database
-conflicts are retried. Documents already in the registry are skipped, so a
-re-run resumes.
+ApiWriter goes through ERPNext's own insert and submit paths, per planned document:
+
+    already in the registry     -> skip (a re-run resumes)
+    depends on a missing one    -> record Skipped
+    build fails                 -> roll back that document only; record Failed with
+                                   its error; transient database conflicts are retried
+    built                       -> record it; commit document and record together
 """
 
 import time
@@ -94,13 +95,15 @@ RETRIES = 8  # waits 2, 4, ... 128 s between attempts (about 4 minutes in all)
 
 
 def is_transient(error: Exception) -> bool:
-	"""Errors where MariaDB aborted the transaction because of another connection:
-	deadlock (1213), lock wait timeout (1205), or "Record has changed since last
-	read" (1020, snapshot isolation); the same document usually succeeds when written
-	again.
+	"""Whether MariaDB aborted the transaction because of another connection.
 
-	Frappe raises these as QueryDeadlockError / QueryTimeoutError wrapping the driver's
-	error, so the code is on the wrapped error, not on the wrapper.
+	    1213  deadlock
+	    1205  lock wait timeout
+	    1020  "Record has changed since last read" (snapshot isolation)
+
+	The same document usually succeeds when written again. Frappe raises these as
+	QueryDeadlockError / QueryTimeoutError wrapping the driver's error, so the code is on
+	the wrapped error, not on the wrapper.
 	"""
 	if isinstance(error, (frappe.QueryDeadlockError, frappe.QueryTimeoutError)):
 		return True
@@ -115,8 +118,10 @@ def is_transient(error: Exception) -> bool:
 
 
 def connection_report() -> str:
-	"""Other connections to this database (and what they run), recorded when a
-	conflict outlasts every retry, to identify what keeps changing the rows."""
+	"""Other connections to this database, and what they are running.
+
+	Recorded when a conflict outlasts every retry, to identify what keeps changing the rows.
+	"""
 	try:
 		rows = frappe.db.sql(
 			# without the PROCESS privilege this lists the site user's own connections,

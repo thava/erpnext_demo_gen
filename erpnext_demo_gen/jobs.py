@@ -1,10 +1,12 @@
-"""Keep generation from flooding the background queue.
+"""Background jobs: ERPNext's follow-up jobs run inline, and the desk page's own jobs.
 
-Deleting a document enqueues frappe.model.delete_doc.delete_dynamic_links, one
-job per document. Uninstall deletes hundreds, and with no worker running the
-queue reaches its limit (frappe raises QueueOverloaded at about 500 jobs), which
-then breaks every later enqueue on the site. The job only deletes a few rows,
-so we run it inline instead.
+Inline (inline_jobs): while DemoGen deletes documents, ERPNext enqueues
+frappe.model.delete_doc.delete_dynamic_links, one job per document. An uninstall
+deletes hundreds; with no worker running, the queue reaches Frappe's limit (about 500
+jobs, then QueueOverloaded) and every later enqueue on the site fails. The job only
+deletes a few rows, so it runs at once (frappe.enqueue's own now=True) instead.
+
+Page jobs (enqueue, install_job, uninstall_job): see the section further down.
 """
 
 import sys
@@ -107,8 +109,11 @@ def enqueue(action: str, method: str, live_run: str | None = None, **kwargs):
 
 
 class _JobLog:
-	"""The log function for service calls in a job: keeps the last lines and the structured
-	progress in the live state, and publishes them to the page at most every PUBLISH_EVERY s."""
+	"""The log function given to the service in a page job.
+
+	Keeps the last lines and the structured progress in the live state, and publishes
+	them to the page at most every PUBLISH_EVERY seconds (each new log line at once).
+	"""
 
 	def __init__(self, state: dict):
 		import time
@@ -134,8 +139,12 @@ class _JobLog:
 
 
 def stale_code_files() -> list[str]:
-	"""The app's loaded modules whose source changed after this process loaded them: a worker
-	started before an update keeps old modules, and the jobs it forks inherit them."""
+	"""The app's modules whose source file changed after this process imported them.
+
+	A worker started before an app update keeps the modules it loaded, and the jobs it
+	forks inherit them: such a job would run old code next to newly imported modules.
+	The import times come from erpnext_demo_gen.LOADED_AT.
+	"""
 	import os
 
 	import erpnext_demo_gen

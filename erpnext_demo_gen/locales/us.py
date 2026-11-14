@@ -1,19 +1,20 @@
 """United States: a single-state Texas business selling only in Texas.
 
 Sales tax is one combined state + local rate (pack: sales_tax.rate, 8.25%), charged on
-every taxable sale: Texas sources in-state sales to the seller's place of business,
-so delivered sales carry the store's rate too. No input credit exists:
+every taxable sale. Texas sources in-state sales to the seller's place of business, so
+delivered sales carry the store's rate too. There is no input credit:
 
-    stock bought for resale     no tax (resale certificate)  purchase template "TX Resale Purchase"
-                                (per bill, not per item: ERPNext copies an item tax template's
-                                accounts onto sales documents too)
-    food (water, coffee, ...)   exempt everywhere              Item Tax Template "TX Exempt - Food"
-    own-use purchases           tax charged by Texas sellers ("TX Tax Charged"), or use tax
-                                owed by the buyer on out-of-state purchases ("TX Use Tax":
-                                Add to expense, Deduct to the payable)
-    reseller customers          no tax (their resale certificate on file)  "TX Exempt Sale"
+    stock bought for resale     no tax (resale certificate): purchase template
+                                "TX Resale Purchase", per bill, not per item, because
+                                ERPNext copies an item tax template's accounts onto
+                                sales documents too
+    food (water, coffee, ...)   exempt everywhere: Item Tax Template "TX Exempt - Food"
+    own-use purchases           tax charged by Texas sellers ("TX Tax Charged"), or use
+                                tax owed by the buyer on out-of-state purchases
+                                ("TX Use Tax": Add to expense, Deduct to the payable)
+    reseller customers          no tax (their resale certificate on file): "TX Exempt Sale"
 
-Rates are fixed pack data, never fetched (same seed, same data; offline). General
+Rates are fixed pack data, never fetched (same seed, same data; works offline). General
 information, not tax advice.
 """
 
@@ -158,8 +159,11 @@ class USLocale(Locale):
 		}
 
 	def business_tax(self, rng: random.Random, name: str, region: str, registered: bool, category: str) -> dict:
-		"""Every business has an EIN; a reseller also a Texas resale certificate (its
-		11-digit Texas taxpayer number), which the shop keeps on file."""
+		"""A business's EIN, and for a reseller its Texas resale certificate.
+
+		The certificate number is the reseller's 11-digit Texas taxpayer number; the shop
+		keeps it on file.
+		"""
 		ein = f"{rng.randint(10, 88):02d}-{rng.randint(0, 9999999):07d}"
 		out = {"tax_id": ein, "tax_category": TAX_CATEGORY_RESELLER if category == TAX_CATEGORY_RESELLER else None}
 		if category == TAX_CATEGORY_RESELLER:
@@ -213,8 +217,10 @@ class USLocale(Locale):
 	timezone = "America/Chicago"
 
 	def company_fields(self, params) -> dict:
-		"""A made-up EIN as the company's Tax ID (the UAE and German demos get a TRN or an
-		USt-IdNr. the same way)."""
+		"""A made-up EIN as the company's Tax ID.
+
+		The UAE and German demos get a TRN or an USt-IdNr. the same way.
+		"""
 		rng = random.Random(f"{params.seed}:company-ein")
 		return {
 			"country": "United States",
@@ -246,9 +252,12 @@ class USLocale(Locale):
 		}
 
 	def setup_taxes(self, run, company: str, abbr: str, pack: dict):
-		"""Texas sales and use tax: accounts, exempt Item Tax Templates, sales and purchase
-		templates, the Reseller and Out of State tax categories and their Tax Rules.
-		Everything goes through the registry, so uninstall removes it."""
+		"""Texas sales and use tax set-up.
+
+		Accounts, exempt Item Tax Templates, sales and purchase templates, the Reseller and
+		Out of State tax categories and their Tax Rules. All through the registry, so
+		uninstall removes it.
+		"""
 		import frappe
 
 		rate = float(pack["sales_tax"]["rate"])
@@ -431,9 +440,13 @@ class USLocale(Locale):
 		}
 
 	def party_fields(self, p, w) -> dict:
-		"""EIN, tax category (Reseller; Out of State for suppliers elsewhere), and ERPNext's
-		quick-entry address fields (its after_insert creates the primary address). A
-		reseller's certificate number goes into the party's details."""
+		"""EIN, tax category and address fields for a customer or supplier.
+
+		    tax category    Reseller; Out of State for suppliers elsewhere
+		    address         ERPNext's quick-entry fields: its after_insert hook turns them into
+		                    the party's primary Address
+		    reseller        the certificate number goes into the party's details
+		"""
 		address = p.get("address") or {}
 		fields = {}
 		if p.get("tax_id"):
@@ -462,9 +475,13 @@ class USLocale(Locale):
 		return {"taxes": [{"item_tax_template": template}]} if template else {}
 
 	def purchase_taxes(self, doc, w):
-		"""Stock for resale: no tax (the store's resale certificate). Own-use purchases:
-		use tax from an out-of-state supplier (the seller charges none), else the Texas
-		seller's tax. Exempt lines (food) stay at 0 through their Item Tax Template."""
+		"""Texas tax on a purchase, by what is bought and from where.
+
+		    stock for resale            no tax (the store's resale certificate)
+		    own use, out-of-state       use tax, owed by the buyer (the seller charges none)
+		    own use, Texas seller       the seller's sales tax
+		    exempt lines (food)         0, through their Item Tax Template
+		"""
 		import frappe
 
 		data = w.locale_data
@@ -499,8 +516,11 @@ class USLocale(Locale):
 		return ["Texas"]  # single-state scope: no multi-state sourcing or nexus rules
 
 	def registration_lines(self, run, company: str) -> list[str]:
-		"""EIN (the Tax ID) and the Texas sales and use tax permit, whose number is the
-		11-digit Texas taxpayer number (no field of its own in ERPNext)."""
+		"""EIN and the Texas sales and use tax permit.
+
+		The EIN is also the Company's Tax ID. The permit's number is the 11-digit Texas
+		taxpayer number, which has no field of its own in ERPNext.
+		"""
 		import frappe
 
 		rng = random.Random(f"{run.params.seed}:company-texas-permit")
@@ -538,9 +558,13 @@ class USLocale(Locale):
 
 	# ---------------------------------------------------------- verify
 	def tax_checks(self, ctx) -> list:
-		"""Texas: regular customers pay the sales tax, resellers with a
-		certificate on file pay none, deliveries ship to Texas, stock for resale is bought
-		tax-free."""
+		"""Texas sales and use tax checks.
+
+		    regular customers           pay the sales tax
+		    resellers                   pay none (certificate on file)
+		    deliveries                  ship to Texas
+		    stock for resale            bought tax-free
+		"""
 		import frappe
 		from frappe.utils import flt
 

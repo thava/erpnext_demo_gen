@@ -1,8 +1,9 @@
 """The desk page's jobs, run inline: no worker needed.
 
-install_job and uninstall_job call the same service functions as the CLI; this checks what
-the page relies on: the live state (status, progress, log lines), the run, and the registry.
-It commits (an install always does) and removes what it created, like the smoke test.
+install_job and uninstall_job call the same service functions as the CLI. This checks
+what the page relies on: the live state (status, progress, log lines), the run, and
+the registry. It commits (an install always does) and removes what it created, like
+the smoke test.
 """
 
 import frappe

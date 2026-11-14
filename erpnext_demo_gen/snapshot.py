@@ -1,14 +1,16 @@
 """Snapshots: a demo site in under a minute instead of a live install.
 
-A snapshot is a disposable demo site: a database dump made with Frappe's own backup
-API plus a manifest. It is built on a throwaway site with one company (the demo
-company, created by the setup wizard) and restored only as a new site with
-`bench new-site --source-sql`; nothing existing is touched.
+A snapshot is a disposable demo site: a database dump (Frappe's own backup) plus a
+manifest.
 
-The commands drive `bench` itself in subprocesses (new-site, install, verify,
-drop-site), so each step runs exactly as a user would run it. Steps that need a
-connected site (`complete_setup`, `dump`) are module functions run through
-`bench --site X execute`.
+    build       throwaway site -> setup wizard (the demo company) -> install -> verify
+                -> dump -> drop the site
+    restore     only as a new site (`bench new-site --source-sql`); nothing existing
+                is touched
+
+The commands drive `bench` itself in subprocesses, so each step runs exactly as a user
+would run it. Steps that need a connected site (`complete_setup`, `dump`) are module
+functions run through `bench --site X execute`.
 """
 
 import datetime as dt
@@ -46,8 +48,11 @@ def parse_version(text: str) -> tuple[int, int, int]:
 
 
 def is_dev(version: str) -> bool:
-	"""A development branch version such as "17.0.0-dev" (develop): it stays the same for
-	weeks while the schema changes, so commits, not version numbers, tell builds apart."""
+	"""Whether a version is a development branch's, such as "17.0.0-dev" (develop).
+
+	Such a version stays the same for weeks while the schema changes, so commits, not
+	version numbers, tell those builds apart.
+	"""
 	return "dev" in (version or "")
 
 
@@ -146,8 +151,11 @@ def bench(args: list[str], log=print, check=True, secret: str | None = None) -> 
 
 
 def find_file(path: str) -> str:
-	"""bench runs commands from sites/; resolve a relative path against the shell's
-	working directory ($PWD) first, then the bench folder and its snapshot folder."""
+	"""Resolve a dump path the way the user meant it.
+
+	bench runs commands from sites/, so a relative path is tried against the shell's
+	working directory ($PWD) first, then the bench folder and its snapshot folder.
+	"""
 	if os.path.isabs(path):
 		return path
 	for base in (os.environ.get("PWD"), bench_path(), default_dir(), os.getcwd()):
@@ -252,9 +260,11 @@ def fiscal_year(today: dt.date, locale=None) -> tuple[dt.date, dt.date]:
 
 
 def complete_setup(pack: str, seed: int = 1, company: str | None = None):
-	"""Run the setup wizard non-interactively in the pack's country (India: INR) with the
-	demo company, or with the given company (CI: a neutral wizard company next to the
-	demo's own)."""
+	"""Run the setup wizard non-interactively, in the pack's country (India: INR).
+
+	Creates the demo company, or the given company (CI: a neutral wizard company next to
+	the demo's own).
+	"""
 	from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
 
 	from erpnext_demo_gen.locales import get_locale

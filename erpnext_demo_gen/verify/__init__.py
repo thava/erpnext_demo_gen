@@ -1,8 +1,8 @@
 """verify: check that an installed demo is internally consistent.
 
-Each check returns a Check(name, ok, detail). The checks use ERPNext's own
-reports where they exist (receivable and payable aging, stock balance, gross
-profit), so a passing verify also means those screens work on the data.
+Each check returns a Check(name, ok, detail). The checks use ERPNext's own reports
+where they exist (receivable and payable aging, stock balance, gross profit), so a
+passing verify also means those screens work on the data.
 """
 
 from dataclasses import dataclass
@@ -192,8 +192,11 @@ def check_no_pending_reposts(ctx) -> Check:
 
 
 def check_taxes(ctx) -> list[Check]:
-	"""The country's tax checks, from the pack's locale (India: GST rows; US: Texas sales
-	and use tax; UAE: VAT and the VAT 201 report)."""
+	"""The country's tax checks, from the pack's locale.
+
+	India: GST rows; US: Texas sales and use tax; UAE: VAT and the VAT 201 report;
+	Germany: VAT and the UStVA totals.
+	"""
 	from erpnext_demo_gen.locales import get_locale
 	from erpnext_demo_gen.packs import load_pack
 
@@ -258,10 +261,13 @@ def check_reports(ctx) -> Check:
 
 
 def check_banking(ctx) -> list[Check]:
-	"""Payments use every mode the pack plans, through the demo's own bank accounts; bank
-	clearance matches a reconciliation done up to the end of the previous month; and the
-	weekly transfers leave only the latest week's receipts in the collection account and
-	the cash box."""
+	"""Payments, bank reconciliation and weekly transfers.
+
+	    modes           every mode the pack plans is used, through the demo's own accounts
+	    clearance       matches a reconciliation done up to the end of the previous month
+	    transfers       only the latest week's receipts remain in the collection account
+	                    and the cash box
+	"""
 	from datetime import timedelta
 
 	from erpnext.accounts.report.bank_reconciliation_statement.bank_reconciliation_statement import (
@@ -351,9 +357,11 @@ def check_banking(ctx) -> list[Check]:
 
 
 def check_supplies(ctx) -> list[Check]:
-	"""Own-use supplies: issues are expensed, and every stocked supply at or
-	below its reorder level has a purchase request or order still open. Only for runs
-	that planned supplies."""
+	"""Own-use supplies: issues are expensed, and low stock has an open request.
+
+	Every stocked supply at or below its reorder level has a purchase request or order
+	still open. Only for runs that planned supplies.
+	"""
 	items = frappe.db.sql_list(
 		"""select ref_name from `tabDemo Data Record`
 		where run = %s and ref_doctype = 'Item' and plan_key like 'M:supply:item:%%'""",

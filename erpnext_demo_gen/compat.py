@@ -19,8 +19,9 @@ def append_template_taxes(doc):
 
 
 def mapper(module: str, name: str, required: bool = True):
-	"""A "make X from Y" function, e.g. mapper("erpnext...purchase_order.purchase_order",
-	"make_purchase_receipt").
+	"""A "make X from Y" function, wherever this ERPNext version keeps it.
+
+	    mapper("erpnext...purchase_order.purchase_order", "make_purchase_receipt")
 
 	v16 keeps these in the doctype's own module; develop (v17) moved them to a mapper.py
 	next to it. Returns None when not required and found in neither.

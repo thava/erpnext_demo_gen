@@ -1,10 +1,10 @@
 """Planner: pack + size + seed + dates -> an ordered list of PlannedDoc.
 
-Pure: no database access, so the plan is deterministic and unit-testable.
-Documents refer to each other through plan keys ({"$ref": key}); the writer
-resolves them to real document names. Each concern draws from its own random
-stream (ctx.rng("purpose")), so changing one part of the plan never reshuffles
-another.
+    pure            no database access: deterministic and unit-testable
+    plan keys       documents refer to each other as {"$ref": key}; the writer
+                    replaces them with real document names
+    random streams  one per concern (ctx.rng("purpose")), so changing one part of the
+                    plan never reshuffles another
 """
 
 import random

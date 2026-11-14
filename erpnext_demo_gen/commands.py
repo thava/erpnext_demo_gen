@@ -1,9 +1,10 @@
-"""bench --site <site> demo-gen ...
+"""The `bench --site <site> demo-gen ...` commands.
 
     demo-gen list-packs
-    demo-gen install --country IN|US|AE|DE [--pack furniture_store] [--size small|medium|large] [--seed N] [--end-date YYYY-MM-DD]
-                      [--home-state TN] [--demo-company-name NAME] [--use-wizard-company]
-                      [--unregistered] [--force]
+    demo-gen install --country IN|US|AE|DE [--pack furniture_store]
+                     [--size small|medium|large] [--seed N] [--end-date YYYY-MM-DD]
+                     [--home-state TN] [--demo-company-name NAME] [--use-wizard-company]
+                     [--unregistered] [--force]
     demo-gen status
     demo-gen history [--run DD-RUN-00001] [--limit 10]
     demo-gen verify [--run DD-RUN-00001]

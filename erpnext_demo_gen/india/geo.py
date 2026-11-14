@@ -1,9 +1,8 @@
-"""Curated cities with state and a real 3-digit pincode prefix.
+"""Curated Indian cities, each with its state and a real 3-digit pincode prefix.
 
-india_compliance validates that an address pincode falls inside its state's
-range (STATE_PINCODE_MAPPING), so each city carries a prefix from that range;
-tests/test_india.py checks every entry. State names match india_compliance's
-STATE_NUMBERS keys.
+india_compliance rejects an address whose pincode is outside its state's range
+(STATE_PINCODE_MAPPING), so each prefix comes from that range; tests/test_india.py
+checks every entry. State names match india_compliance's STATE_NUMBERS keys.
 """
 
 import random

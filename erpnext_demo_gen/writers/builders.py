@@ -1,9 +1,9 @@
 """Builders: one function per PlannedDoc.builder, turning resolved params into a document.
 
 A builder returns the inserted (or submitted) document. When a suitable document
-already exists and is not ours (a shared item group, a payment terms template),
-it returns that document with `flags.demo_reused` set; the writer then records
-it as Reused, so dependants can use it but uninstall leaves it alone.
+already exists and is not ours (a shared item group, a payment terms template), it
+returns that one with `flags.demo_reused` set; the writer records it as Reused, so
+dependants can use it but uninstall leaves it alone.
 """
 
 import frappe
@@ -236,8 +236,11 @@ def _save(doc, pd, submit=True, fill_taxes=False, tax_inclusive=False):
 
 
 def _price_list(doc, w):
-	"""Name the demo's price list on the document: the site's default may be in another
-	currency (another country's company), and the document's currency follows it."""
+	"""Put the demo's price list and currency on the document.
+
+	The site's default price list may be in another currency (another country's company),
+	and a document's currency follows its price list.
+	"""
 	if doc.meta.has_field("selling_price_list"):
 		doc.selling_price_list = w.selling_price_list
 	if doc.meta.has_field("buying_price_list"):
@@ -312,8 +315,10 @@ def material_request(p, w, pd):
 
 
 def stock_issue(p, w, pd):
-	"""Issue a staff request's supplies from their store (Stock Entry, Material Issue);
-	the cost goes to the items' expense account."""
+	"""Issue a staff request's supplies from their store (Stock Entry, Material Issue).
+
+	The cost goes to the items' expense account.
+	"""
 	make_stock_entry = mapper("erpnext.stock.doctype.material_request.material_request", "make_stock_entry")
 
 	doc = make_stock_entry(p.material_request)
@@ -526,10 +531,11 @@ def refund(p, w, pd):
 
 
 def _payment_method(doc, w, p, pd, field: str):
-	"""Mode, account and bank reference as planned. Bank payments always use the demo's
-	own bank accounts, never the company's default (which may be the user's).
+	"""Mode, account and bank reference, as planned.
 
-	Plans made before payment methods existed carry only "cash"."""
+	Bank payments always use the demo's own bank accounts, never the company's default
+	(which may be the user's). Plans made before payment methods existed carry only "cash".
+	"""
 	mode = p.get("mode") or ("Cash" if p.get("cash") else "Wire Transfer")
 	doc.mode_of_payment = mode
 	if mode == "Cash":
@@ -545,8 +551,11 @@ def _payment_method(doc, w, p, pd, field: str):
 
 
 def bank_transfer(p, w, pd):
-	"""Weekly Internal Transfer into the main account: the collection account's balance
-	(swept by NEFT) or the cash in hand (deposited at the branch)."""
+	"""Weekly Internal Transfer into the main account.
+
+	    from the collection account   its balance, swept by NEFT
+	    from the cash box             the cash in hand, deposited at the branch
+	"""
 	from erpnext.accounts.utils import get_balance_on
 
 	source = w.accounts["collection"]["ledger"] if p.source == "collection" else w.cash_account

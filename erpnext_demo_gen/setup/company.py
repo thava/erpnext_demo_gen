@@ -1,12 +1,18 @@
-"""Demo company set-up. Country specifics come from the pack's locale.
+"""Demo company set-up; country specifics come from the pack's locale.
 
-Creates, through the registry: the demo Company (ERPNext installs the country's
-fixtures; in India india_compliance adds GST accounts and tax templates), its
-own Address with its tax ID (India: GSTIN; none with --unregistered; in wizard mode
-added with a made-up GSTIN), the pack's warehouses and every Fiscal Year the date
-range touches. Then makes the demo company the default, remembering the previous
-default for uninstall. It is not registered as ERPNext's demo company
-(Global Defaults.demo_company): ERPNext's own demo tools stay ERPNext's, and the two can coexist.
+Creates, through the registry:
+
+    Company         ERPNext installs the country's fixtures with it (chart, taxes);
+                    in India india_compliance adds GST accounts and templates
+    Address         the company's own, with its tax ID (India: GSTIN; none with
+                    --unregistered; in wizard mode with a made-up GSTIN)
+    warehouses      the pack's
+    fiscal years    every one the date range touches
+
+Then makes the demo company the default, remembering the previous one for uninstall.
+
+Not registered as ERPNext's demo company (Global Defaults.demo_company): ERPNext's own
+demo tools stay ERPNext's, and the two can coexist.
 """
 
 import random
@@ -129,14 +135,15 @@ def setup_company(run: Run, pack: dict) -> str:
 
 
 def ensure_fiscal_year(run: Run, fy_start: date, company: str, locale=None):
-	"""The demo company's fiscal year starting fy_start: the site's own when it has one with
-	the same dates, otherwise a new one.
+	"""The demo company's fiscal year starting fy_start.
+
+	    site has one with these dates   use it
+	    else                            create one
 
 	When the site's years run on another calendar (India April to March; the US, UAE and
-	Germany January to December), the new year is limited to the demo company.
-	ERPNext allows such an overlap and gives a company its own years first
-	(_get_fiscal_years), so the demo uses its calendar and the site's other companies keep
-	theirs.
+	Germany January to December), the new year is limited to the demo company (its
+	Companies table). ERPNext allows such an overlap and gives a company its own years
+	first (_get_fiscal_years): the demo uses its calendar, other companies keep theirs.
 	"""
 	fy_end = (locale or get_locale()).fiscal_year_end(fy_start)
 	for fy in frappe.get_all(
@@ -175,9 +182,12 @@ def ensure_fiscal_year(run: Run, fy_start: date, company: str, locale=None):
 
 
 def ensure_price_lists(run: Run, company: str):
-	"""Price lists in the demo company's currency. The site's defaults (Selling and Buying
-	Settings) are used when they are in that currency; on a site set up for another country
-	the demo gets "Standard Selling (INR)" and so on, recorded for uninstall."""
+	"""Price lists in the demo company's currency.
+
+	A document's currency follows its price list. The site's defaults (Selling and Buying
+	Settings) are used when they are in that currency; on a site set up for another
+	country the demo gets "Standard Selling (INR)" and so on, recorded for uninstall.
+	"""
 	currency = frappe.get_cached_value("Company", company, "default_currency")
 	chosen = {}
 	for role, settings, flag in (("selling", "Selling Settings", "selling"), ("buying", "Buying Settings", "buying")):

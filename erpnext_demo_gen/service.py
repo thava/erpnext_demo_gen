@@ -1,5 +1,6 @@
-"""Service layer: install, status, uninstall. The CLI (commands.py) and the desk
-page (api.py) are thin wrappers over these functions.
+"""Service layer: install, status, verify, uninstall.
+
+The CLI (commands.py) and the desk page (api.py) are thin wrappers over these functions.
 """
 
 import json
@@ -231,8 +232,10 @@ def install(
 	unregistered=False,
 	country=None,
 ):
-	"""Install a pack for a country. The country is required and explicit; the pack is
-	optional (the country's default pack)."""
+	"""Install a pack for a country, or resume a stopped install with the same inputs.
+
+	The country is required and explicit; the pack is optional (the country's default).
+	"""
 	from erpnext_demo_gen.locales import get_locale
 	from erpnext_demo_gen.packs import PackNotFound, default_packs, find_pack, list_packs
 

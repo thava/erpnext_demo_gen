@@ -4,8 +4,8 @@ A pack names its locale (`locale: IN`, set once in its base pack, e.g. india_tra
 The planner, setup, writers and checks ask the locale for country-specific data and
 behaviour instead of assuming India.
 
-Planning methods take the random stream they should draw from and must draw in a
-fixed order, so a plan stays reproducible from its seed (golden plans).
+Planning methods take the random stream to draw from and must always draw in the
+same order: otherwise the same seed gives a different plan (the golden plans catch it).
 """
 
 import random
@@ -123,8 +123,10 @@ class Locale:
 		raise NotImplementedError
 
 	def registration_lines(self, run, company: str) -> list[str]:
-		"""The demo company's (made-up) registrations, one per line, for its Registration
-		Details; tax IDs without a field of their own go here too."""
+		"""The demo company's made-up registrations, one line each, for Registration Details.
+
+		Tax IDs without a field of their own (PAN, Steuernummer, a Texas permit) go here too.
+		"""
 		import frappe
 
 		tax_id = frappe.db.get_value("Company", company, "tax_id")
@@ -139,8 +141,12 @@ class Locale:
 
 	# ---------------------------------------------------------- writing documents
 	def writer_context(self, run, company: str) -> dict:
-		"""Site facts for WriteContext: territory, tax_templates (key -> Item Tax
-		Template) and locale_data (anything else the locale's builders need)."""
+		"""Site facts for WriteContext, resolved once per run.
+
+		    territory       the parties' territory
+		    tax_templates   key (e.g. GST rate) -> Item Tax Template
+		    locale_data     anything else the locale's builder hooks need
+		"""
 		raise NotImplementedError
 
 	def party_fields(self, p, w) -> dict:
@@ -189,8 +195,11 @@ class Locale:
 		return self.regions()
 
 	def check_options(self, unregistered: bool):
-		"""Refuse install options the country cannot model; by default --unregistered, since each
-		country needs its own rules for a business not registered for tax."""
+		"""Refuse install options the country cannot model.
+
+		Default: --unregistered is refused; each country needs its own rules for a business
+		not registered for tax, so a locale that has them overrides this.
+		"""
 		from erpnext_demo_gen.service import DemoDataError
 
 		if unregistered:
@@ -204,10 +213,14 @@ class Locale:
 		return []
 
 	def unregistered_checks(self, ctx, tax: str) -> list:
-		"""verify for --unregistered: sales carry no tax; purchases from
-		registered suppliers carry tax only on the not-recoverable account, those from
-		unregistered suppliers none (tax_id_means_registered). In wizard mode only the run's
-		documents count."""
+		"""verify checks for --unregistered.
+
+		    sales                            no tax at all
+		    bills, registered supplier       tax only on the not-recoverable account
+		    bills, unregistered supplier     no tax (tax_id_means_registered decides who is)
+
+		In wizard mode only the run's own documents count.
+		"""
 		import frappe
 
 		from erpnext_demo_gen.verify import Check
@@ -256,9 +269,12 @@ class Locale:
 		return "Company Tax ID" if frappe.db.get_value("Company", company, "tax_id") else None
 
 	def check_wizard_company(self, company: str, params: dict, home_region: str | None, unregistered: bool):
-		"""Validate installing into the user's own company and settle params (home
-		region); raise DemoDataError when it cannot work. A company with a tax ID is
-		refused in every country: the demo never issues invoices under a real one."""
+		"""Check that the demo can go into the user's own company, and settle params.
+
+		Sets params such as the home region; raises DemoDataError when it cannot work. A
+		company with a tax ID is refused in every country: the demo would otherwise issue
+		invoices under a real registration.
+		"""
 		from erpnext_demo_gen.service import DemoDataError
 
 		where = self.company_tax_id(company)
@@ -304,8 +320,10 @@ def known_locales() -> tuple[str, ...]:
 
 
 def squash(text: str) -> str:
-	"""Lower case, letters and digits only: "United States", "united-states" and
-	"UnitedStates" all become "unitedstates"."""
+	"""Lower case, letters and digits only.
+
+	"United States", "united-states" and "UnitedStates" all become "unitedstates".
+	"""
 	return "".join(ch for ch in text.lower() if ch.isalnum())
 
 
@@ -314,8 +332,10 @@ def country_choices() -> str:
 
 
 def resolve_country(text: str | None) -> str | None:
-	"""The locale code for a country code or name, ignoring case, spaces and punctuation
-	(IN, india, US, usa, "United States", united-states); None when unknown."""
+	"""The locale code for a country code or name; None when unknown.
+
+	Ignores case, spaces and punctuation: IN, india, US, usa, "United States", united-states.
+	"""
 	if not text:
 		return None
 	wanted = squash(text)

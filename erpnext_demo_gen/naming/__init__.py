@@ -1,9 +1,11 @@
-"""Curated word pools for clean, counter-free display names (no Faker: it is only a
-frappe test dependency, and its output changes between versions).
+"""Curated word pools for clean display names, with no visible counters.
 
-Company names have the shape [nature or colour word] [place or material word]
-[industry noun] [legal suffix], e.g. "Cedar Ridge Interiors Pvt Ltd". The
-industry nouns come from the pack; the other pools live here.
+Not Faker: it is only a frappe test dependency, and its output changes between
+versions, which would break "same seed, same data".
+
+Company names: [nature or colour word] [place or material word] [industry noun]
+[legal suffix], e.g. "Cedar Ridge Interiors Pvt Ltd". The industry nouns come from the
+pack; the other pools live here.
 """
 
 import random

@@ -1,8 +1,10 @@
 """Master data plan: payment terms, item groups, suppliers, items, prices, customers.
 
-Order matters for uninstall, which walks the registry backwards: items come after
-suppliers (they list them as Item Supplier rows) and customers after payment
-terms, so the reverse walk removes dependants first.
+The order matters for uninstall, which walks the registry backwards and so must meet
+dependants first:
+
+    suppliers -> items          items list their suppliers (Item Supplier rows)
+    payment terms -> customers  customers use the terms
 """
 
 from erpnext_demo_gen import naming
