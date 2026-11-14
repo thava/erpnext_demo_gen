@@ -7,7 +7,8 @@ Run it on a disposable site that already has some non-demo data, e.g.:
         --kwargs '{"country": "IN", "pack": "furniture_store", "seed": 11}'
 
 It snapshots row counts of the tables a demo touches, installs, runs verify,
-uninstalls, and fails if any count differs from the snapshot (M-9 gate) or if
+uninstalls, and fails if any count differs from the snapshot (uninstall left
+something behind or removed the user's data) or if
 the default company was not restored.
 """
 
@@ -102,7 +103,7 @@ def run(
 	)
 	_, checks = service.verify(run_doc.name)
 	failed = [c for c in checks if not c.ok]
-	if run_doc.params.get("fictitious_gstin"):  # India wizard mode: the made-up GSTIN address (DEC-35)
+	if run_doc.params.get("fictitious_gstin"):  # India wizard mode: the made-up GSTIN address
 		made_up = made_up_gstin_address(run_doc.doc.company)
 		print(f"  {'ok  ' if made_up else 'FAIL'} made-up GSTIN address: {made_up or 'missing'}")
 		failed += [] if made_up else ["made-up GSTIN address"]

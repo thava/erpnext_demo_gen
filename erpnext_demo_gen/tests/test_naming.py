@@ -12,7 +12,7 @@ class TestNaming(UnitTestCase):
 		b = naming.company_name(random.Random("1:company-name"), ["Furniture"], "Pvt Ltd")
 		self.assertEqual(a, b)
 		self.assertRegex(a, r"^\w+ \w+ Furniture Pvt Ltd$")
-		self.assertFalse(any(ch.isdigit() for ch in a))  # no visible counters (DEC-10)
+		self.assertFalse(any(ch.isdigit() for ch in a))  # no visible counters
 
 	def test_abbreviation_skips_suffix_and_avoids_collisions(self):
 		self.assertEqual(naming.abbreviation("Cedar Ridge Furniture Pvt Ltd", set()), "CRF")

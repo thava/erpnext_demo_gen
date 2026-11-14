@@ -1,4 +1,4 @@
-"""United States: a single-state Texas business selling only in Texas (design 5.14, DEC-28).
+"""United States: a single-state Texas business selling only in Texas.
 
 Sales tax is one combined state + local rate (pack: sales_tax.rate, 8.25%), charged on
 every taxable sale: Texas sources in-state sales to the seller's place of business,
@@ -6,7 +6,7 @@ so delivered sales carry the store's rate too. No input credit exists:
 
     stock bought for resale     no tax (resale certificate)  purchase template "TX Resale Purchase"
                                 (per bill, not per item: ERPNext copies an item tax template's
-                                accounts onto sales documents too, F-45)
+                                accounts onto sales documents too)
     food (water, coffee, ...)   exempt everywhere              Item Tax Template "TX Exempt - Food"
     own-use purchases           tax charged by Texas sellers ("TX Tax Charged"), or use tax
                                 owed by the buyer on out-of-state purchases ("TX Use Tax":
@@ -14,7 +14,7 @@ so delivered sales carry the store's rate too. No input credit exists:
     reseller customers          no tax (their resale certificate on file)  "TX Exempt Sale"
 
 Rates are fixed pack data, never fetched (same seed, same data; offline). General
-information, not tax advice; details marked *verify* in the design doc.
+information, not tax advice.
 """
 
 import random
@@ -496,7 +496,7 @@ class USLocale(Locale):
 		return "TX (Texas)"
 
 	def home_regions(self) -> list[str]:
-		return ["Texas"]  # single-state scope (design 5.14)
+		return ["Texas"]  # single-state scope: no multi-state sourcing or nexus rules
 
 	def registration_lines(self, run, company: str) -> list[str]:
 		"""EIN (the Tax ID) and the Texas sales and use tax permit, whose number is the
@@ -538,7 +538,7 @@ class USLocale(Locale):
 
 	# ---------------------------------------------------------- verify
 	def tax_checks(self, ctx) -> list:
-		"""Texas (design 5.14): regular customers pay the sales tax, resellers with a
+		"""Texas: regular customers pay the sales tax, resellers with a
 		certificate on file pay none, deliveries ship to Texas, stock for resale is bought
 		tax-free."""
 		import frappe
@@ -604,5 +604,5 @@ def _item_tax_template(fields: dict):
 	from erpnext_demo_gen.setup.tax_templates import gst_fields
 
 	doc = frappe.get_doc(fields)
-	gst_fields(doc)  # a site with india_compliance (F-55)
+	gst_fields(doc)  # india_compliance validates every Item Tax Template on the site
 	return doc.insert(ignore_permissions=True)

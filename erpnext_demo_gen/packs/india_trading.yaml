@@ -52,7 +52,7 @@ banking:
   # to the end of the previous month, so later payments show as uncleared.
   clearing_days: {UPI: [0, 0], Wire Transfer: [0, 1], Card: [1, 2], Cheque: [2, 5]}
 
-# Own-use inventory (design 5.15): supplies the business keeps for itself, counted in
+# Own-use inventory: supplies the business keeps for itself, counted in
 # their own store and reordered at their reorder level; drinking water is billed monthly.
 supplies:
   warehouse: Office Stores

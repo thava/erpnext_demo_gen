@@ -1,6 +1,6 @@
-"""Planner: pack + size + seed + dates -> an ordered list of PlannedDoc (design 5.4).
+"""Planner: pack + size + seed + dates -> an ordered list of PlannedDoc.
 
-Pure: no database access, so the plan is deterministic and unit-testable (M-5).
+Pure: no database access, so the plan is deterministic and unit-testable.
 Documents refer to each other through plan keys ({"$ref": key}); the writer
 resolves them to real document names. Each concern draws from its own random
 stream (ctx.rng("purpose")), so changing one part of the plan never reshuffles

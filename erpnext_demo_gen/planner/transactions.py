@@ -1,4 +1,4 @@
-"""Transaction plan: funding, purchases and sales in date order (design 5.5, M-7).
+"""Transaction plan: funding, purchases and sales in date order.
 
 Approach:
 1. Spread sales over the range by the pack's seasonality: showroom invoices
@@ -9,7 +9,7 @@ Approach:
 3. Walk the calendar with a stock ledger: receipts land before same-day sales,
    a shortfall triggers an emergency purchase dated before the sale, and items
    below their reorder level get a material request and purchase order. Stock
-   therefore never goes negative and nothing is back-dated (A-9).
+   therefore never goes negative and nothing is back-dated, so ERPNext queues no stock reposts.
 4. Simulate the bank balance and raise the opening term loan if needed, so the
    bank never goes negative.
 5. Sort everything by (date, stage, creation order) and give each document a
@@ -230,7 +230,7 @@ def plan_sales(ctx, tl: Timeline, items: dict[str, ItemInfo], customers, terms_d
 			chosen = []
 			while len(chosen) < min(n, len(item_keys)):
 				k = rng.choices(item_keys, weights=item_weights)[0]
-				if k not in chosen:  # never repeat an item in one document (A-9)
+				if k not in chosen:  # never repeat an item in one document (repeats cause reposts)
 					chosen.append(k)
 			lines = []
 			for k in chosen:
@@ -275,7 +275,8 @@ def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, 
 	for s in rng.sample(recent, min(len(recent), max(1, round(rates["left_in_draft"] * n)))):
 		s["draft"] = True
 	# Cancellations happen on dealer invoices (plan_delivery): cancelling a stock-moving
-	# showroom invoice queues a stock repost that the scheduler then races (F-34).
+	# showroom invoice queues a stock repost that the scheduler's worker then runs
+	# while the writer updates the same Bin rows (deadlocks).
 	others = [s for s in sales if not s.get("draft")]
 	returnable = [s for s in others if not s.get("cancel") and days_between(s["date"], ctx.end_date) >= 3]
 	for s in rng.sample(returnable, min(len(returnable), max(1, round(rates["returns"] * n)))):

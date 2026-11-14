@@ -1,4 +1,4 @@
-// DemoGen desk page (design 5.19): status, install (small, medium), verify, uninstall,
+// DemoGen desk page: status, install (small, medium), verify, uninstall,
 // progress of the background job, history and help. Server side: erpnext_demo_gen.api.
 
 const DG_API = "erpnext_demo_gen.api.";

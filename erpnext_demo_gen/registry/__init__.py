@@ -2,7 +2,7 @@
 
 Every document the app creates goes through `Run.ensure`, which skips plan keys
 already recorded (resume) and writes the record in the same transaction as the
-document (M-8), so a crash loses both or neither.
+document, so a crash loses both or neither.
 """
 
 import json

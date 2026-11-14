@@ -1,11 +1,12 @@
-"""Demo company set-up (milestone 1). Country specifics come from the pack's locale.
+"""Demo company set-up. Country specifics come from the pack's locale.
 
 Creates, through the registry: the demo Company (ERPNext installs the country's
-fixtures; in India india_compliance adds GST accounts and tax templates, F-5), its
+fixtures; in India india_compliance adds GST accounts and tax templates), its
 own Address with its tax ID (India: GSTIN; none with --unregistered; in wizard mode
 added with a made-up GSTIN), the pack's warehouses and every Fiscal Year the date
 range touches. Then makes the demo company the default, remembering the previous
-default for uninstall. It is not registered as ERPNext's demo company (DEC-34).
+default for uninstall. It is not registered as ERPNext's demo company
+(Global Defaults.demo_company): ERPNext's own demo tools stay ERPNext's, and the two can coexist.
 """
 
 import random
@@ -61,7 +62,7 @@ def setup_company(run: Run, pack: dict) -> str:
 		def create_company():
 			taken = set(frappe.get_all("Company", pluck="abbr"))
 			abbr = naming.abbreviation(company_name, taken)
-			purge_orphans(abbr)  # F-26
+			purge_orphans(abbr)  # rows an earlier company with this abbreviation left (tax_templates.py)
 			return frappe.get_doc(
 				{
 					"doctype": "Company",
@@ -132,7 +133,7 @@ def ensure_fiscal_year(run: Run, fy_start: date, company: str, locale=None):
 	the same dates, otherwise a new one.
 
 	When the site's years run on another calendar (India April to March; the US, UAE and
-	Germany January to December), the new year is limited to the demo company (F-53).
+	Germany January to December), the new year is limited to the demo company.
 	ERPNext allows such an overlap and gives a company its own years first
 	(_get_fiscal_years), so the demo uses its calendar and the site's other companies keep
 	theirs.
@@ -176,7 +177,7 @@ def ensure_fiscal_year(run: Run, fy_start: date, company: str, locale=None):
 def ensure_price_lists(run: Run, company: str):
 	"""Price lists in the demo company's currency. The site's defaults (Selling and Buying
 	Settings) are used when they are in that currency; on a site set up for another country
-	the demo gets "Standard Selling (INR)" and so on, recorded for uninstall (F-53)."""
+	the demo gets "Standard Selling (INR)" and so on, recorded for uninstall."""
 	currency = frappe.get_cached_value("Company", company, "default_currency")
 	chosen = {}
 	for role, settings, flag in (("selling", "Selling Settings", "selling"), ("buying", "Buying Settings", "buying")):

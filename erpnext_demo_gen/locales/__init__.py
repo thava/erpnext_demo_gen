@@ -1,4 +1,4 @@
-"""Locales: everything that depends on the company's country (design 5.11, locale layer).
+"""Locales: everything that depends on the company's country.
 
 A pack names its locale (`locale: IN`, set once in its base pack, e.g. india_trading).
 The planner, setup, writers and checks ask the locale for country-specific data and
@@ -189,7 +189,8 @@ class Locale:
 		return self.regions()
 
 	def check_options(self, unregistered: bool):
-		"""Refuse install options that do not apply to the country (DEC-35, DEC-36)."""
+		"""Refuse install options the country cannot model; by default --unregistered, since each
+		country needs its own rules for a business not registered for tax."""
 		from erpnext_demo_gen.service import DemoDataError
 
 		if unregistered:
@@ -203,7 +204,7 @@ class Locale:
 		return []
 
 	def unregistered_checks(self, ctx, tax: str) -> list:
-		"""verify for --unregistered (DEC-36, DEC-37): sales carry no tax; purchases from
+		"""verify for --unregistered: sales carry no tax; purchases from
 		registered suppliers carry tax only on the not-recoverable account, those from
 		unregistered suppliers none (tax_id_means_registered). In wizard mode only the run's
 		documents count."""
@@ -257,7 +258,7 @@ class Locale:
 	def check_wizard_company(self, company: str, params: dict, home_region: str | None, unregistered: bool):
 		"""Validate installing into the user's own company and settle params (home
 		region); raise DemoDataError when it cannot work. A company with a tax ID is
-		refused in every country: the demo never issues invoices under a real one (DEC-35)."""
+		refused in every country: the demo never issues invoices under a real one."""
 		from erpnext_demo_gen.service import DemoDataError
 
 		where = self.company_tax_id(company)

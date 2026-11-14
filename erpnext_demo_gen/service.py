@@ -1,5 +1,5 @@
 """Service layer: install, status, uninstall. The CLI (commands.py) and the desk
-page (api.py) are thin wrappers over these functions (M-13).
+page (api.py) are thin wrappers over these functions.
 """
 
 import json
@@ -55,7 +55,10 @@ def preflight(force: bool = False, locale=None) -> list[str]:
 
 
 def site_problem(locale, installed=None) -> str | None:
-	"""Why this site cannot hold a demo for the locale's country, or None (F-55).
+	"""Why this site cannot hold a demo for the locale's country, or None.
+
+	india_compliance validates every Item, party and Item Tax Template on the site,
+	whatever the company's country, so other countries' demos fail on such a site.
 
 	india_compliance checks every Item and party on the site for GST details (an HSN code on
 	each item, GST categories on parties), whatever the company's country: items and parties
@@ -119,7 +122,7 @@ def site_in_use(params: dict, force: bool, log=print):
 
 
 def check_redis():
-	"""Transaction Deletion Record needs the Redis queue even in single-transaction mode (F-19)."""
+	"""Transaction Deletion Record needs the Redis queue even in single-transaction mode."""
 	from frappe.utils.background_jobs import get_redis_conn
 
 	try:
@@ -302,7 +305,7 @@ def install(
 def process_reposts(company: str, log=print):
 	"""Run the company's queued stock reposts now, so ledgers are final before verify.
 
-	An in-order install queues none (A-9); a resume after failures writes some
+	An in-order install queues none; a resume after failures writes some
 	documents behind later ones, and ERPNext queues revaluation for those.
 	"""
 	from erpnext.stock.doctype.repost_item_valuation.repost_item_valuation import execute_reposting_entry
@@ -347,7 +350,7 @@ def write_plan(run: Run, pack: dict, log=print) -> dict:
 	wctx = WriteContext.for_run(run, pack, plan_start(run))
 	stats = ApiWriter(run, wctx, log=log).execute(plan)
 	if stats["transient"]:
-		# A database conflict outlasted the writer's retries (F-34). One more pass, as a
+		# A database conflict outlasted the writer's retries. One more pass, as a
 		# resume would, often writes those steps and the ones depending on them. It cannot
 		# help a step whose order mattered (e.g. a partial delivery already shipped by a
 		# later one); such a step stays failed and is reported. Other failures would only

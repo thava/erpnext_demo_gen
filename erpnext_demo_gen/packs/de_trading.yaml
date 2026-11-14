@@ -47,7 +47,7 @@ banking:
     supplier: {Wire Transfer: 0.85, Direct Debit: 0.15}
   clearing_days: {Wire Transfer: [0, 1], Direct Debit: [1, 2], Card: [1, 2]}
 
-# Own-use inventory (design 5.15); input VAT on supplies is deductible like any other.
+# Own-use inventory; input VAT on supplies is deductible like any other.
 # Expense accounts are SKR04 ledgers (account names without their numbers).
 supplies:
   warehouse: Office Stores

@@ -1,6 +1,6 @@
-"""Tax templates: the orphaned-row workaround (F-26) and no-ITC purchase templates (F-38).
+"""Tax templates: the orphaned-row workaround and the not-recoverable tax set-up.
 
-Orphaned rows (F-26).
+Orphaned rows.
 
 Company.on_trash deletes a company's Sales/Purchase Taxes and Charges Templates
 and Item Tax Templates with raw SQL, leaving their child rows behind. When a
@@ -44,7 +44,7 @@ def purge_orphans(abbr: str) -> int:
 
 def gst_fields(doc, rate: float = 0):
 	"""india_compliance validates every Item Tax Template on the site, whatever the company's
-	country (F-55): an Indian template is "Taxable" at its GST rate; another country's is
+	country: an Indian template is "Taxable" at its GST rate; another country's is
 	"Non-GST", which needs no rate."""
 	if not doc.meta.has_field("gst_treatment"):
 		return
@@ -67,8 +67,8 @@ def ensure_not_recoverable(
 	tax_category: str | None = None,
 	no_tax_title: str | None = None,
 ) -> dict:
-	"""Accounts and templates for a business not registered for sales tax (--unregistered;
-	F-38, F-51, DEC-37). A registered supplier still charges the tax, but the buyer cannot
+	"""Accounts and templates for a business not registered for sales tax (--unregistered).
+	A registered supplier still charges the tax, but the buyer cannot
 	recover it. Neither ERPNext nor the country apps handle this; the user sets it up:
 
 	    account   a "not recoverable" expense account, never the recoverable input-tax ones

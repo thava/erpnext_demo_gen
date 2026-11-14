@@ -46,7 +46,7 @@ banking:
     supplier: {Wire Transfer: 0.75, Cheque: 0.25}
   clearing_days: {Wire Transfer: [0, 1], Card: [1, 2], Cheque: [1, 3]}
 
-# Own-use inventory (design 5.15); VAT on supplies is recoverable like any other input.
+# Own-use inventory; VAT on supplies is recoverable like any other input.
 supplies:
   warehouse: Office Stores
   item_group: Office Supplies

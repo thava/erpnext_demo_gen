@@ -14,7 +14,7 @@ What a VAT-registered UAE trading business looks like in ERPNext's own UAE set-u
 Unregistered (--unregistered; registration is mandatory above AED 375,000 of taxable
 supplies in 12 months): sales carry no VAT and the company has no TRN; VAT paid on
 purchases cannot be recovered, so it goes to a "VAT Not Recoverable" expense account
-through "Valuation and Total" rows (in the cost of stock items, DEC-37); VAT Emirate and
+through "Valuation and Total" rows (in the cost of stock items, an expense for the rest); VAT Emirate and
 the VAT 201 report do not apply.
 
 Out of scope for the demo: imports and reverse charge, zero-rated exports, tourist
@@ -220,7 +220,7 @@ class AELocale(Locale):
 					{"doctype": "UAE VAT Settings", "company": company, "uae_vat_accounts": [{"account": a} for a in accounts]}
 				).insert(ignore_permissions=True),
 			)
-		# a supplier without a TRN is not registered and charges no VAT (F-54); an empty
+		# a supplier without a TRN is not registered and charges no VAT; an empty
 		# template keeps ERPNext from applying the default "UAE VAT 5%" to its bills
 		no_vat = frappe.db.get_value("Purchase Taxes and Charges Template", {"company": company, "title": NO_VAT_SUPPLIER})
 		no_vat = no_vat or run.ensure(
@@ -276,7 +276,7 @@ class AELocale(Locale):
 
 	def purchase_taxes(self, doc, w):
 		"""A supplier with a TRN charges 5% VAT; one without a TRN is not registered and
-		charges none (F-54). Unregistered company: that VAT is a cost (not recoverable)."""
+		charges none. Unregistered company: that VAT is a cost (not recoverable)."""
 		import frappe
 
 		registered = frappe.db.get_value("Supplier", doc.supplier, "tax_id")
@@ -319,7 +319,7 @@ class AELocale(Locale):
 		return [f"TRN {trn} (Tax ID), registered for VAT"] if trn else []
 
 	def check_options(self, unregistered: bool):
-		"""--unregistered is supported (DEC-36)."""
+		"""--unregistered is supported: a business below the AED 375,000 registration threshold."""
 
 	def resolve_region(self, text: str) -> str | None:
 		value = text.strip()

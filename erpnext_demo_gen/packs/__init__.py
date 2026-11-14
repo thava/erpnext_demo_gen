@@ -3,7 +3,7 @@
 load_pack(id) reads <id>.yaml from this folder, resolves `extends` (child keys
 override the base; a list replaces the base list unless the child writes the key
 with a trailing "+", which appends), validates the result, and returns a plain
-dict. Validation is plain Python (no jsonschema dependency, C-3) and reports
+dict. Validation is plain Python (jsonschema is not a frappe dependency) and reports
 every problem with its path, not just the first.
 """
 

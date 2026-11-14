@@ -1,4 +1,5 @@
-"""Curated word pools for clean, counter-free display names (DEC-10, DEC-18).
+"""Curated word pools for clean, counter-free display names (no Faker: it is only a
+frappe test dependency, and its output changes between versions).
 
 Company names have the shape [nature or colour word] [place or material word]
 [industry noun] [legal suffix], e.g. "Cedar Ridge Interiors Pvt Ltd". The

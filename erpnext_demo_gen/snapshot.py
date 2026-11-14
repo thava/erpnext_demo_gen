@@ -1,4 +1,4 @@
-"""Snapshots: a demo site in under a minute instead of a live install (design 5.10, DEC-27).
+"""Snapshots: a demo site in under a minute instead of a live install.
 
 A snapshot is a disposable demo site: a database dump made with Frappe's own backup
 API plus a manifest. It is built on a throwaway site with one company (the demo
@@ -214,7 +214,7 @@ def build(
 		raise SnapshotError(f"{e}. The build site {site} is kept for inspection; drop it with: bench drop-site {site} --no-backup") from e
 	dump = latest_dump(out_dir, label, size)
 	# The build queued background jobs (site setup, install); without workers they pile
-	# up until the queue refuses new ones (F-30), and with workers they would run against
+	# up until the queue refuses new ones (about 500), and with workers they would run against
 	# a dropped site. They belong to this throwaway site, so remove them with it.
 	bench(["purge-jobs", "--site", site], log, check=False)
 	bench(["drop-site", site, "--no-backup", "--force", "--db-root-password", db_root_password], log, secret=db_root_password)

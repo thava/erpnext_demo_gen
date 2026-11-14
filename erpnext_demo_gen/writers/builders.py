@@ -12,7 +12,7 @@ from erpnext_demo_gen.compat import append_template_taxes, mapper
 
 
 def insert(doc):
-	doc.flags.notify_update = False  # no realtime events while generating (M-6)
+	doc.flags.notify_update = False  # no realtime events while generating
 	doc.insert(ignore_permissions=True)
 	return doc
 
@@ -195,8 +195,8 @@ def item_price(p, w, pd):
 # ---------------------------------------------------------------- transactions
 # Every transaction carries the planned posting date and a strictly increasing
 # posting time, so documents are written in ledger order and nothing is
-# back-dated (A-9). Documents are built with ERPNext's own mappers where one
-# exists (M-12).
+# back-dated (no stock reposts). Documents are built with ERPNext's own mappers
+# where one exists, so they stay correct as ERPNext changes.
 
 
 def _dated(doc, pd):
@@ -214,10 +214,10 @@ def _save(doc, pd, submit=True, fill_taxes=False, tax_inclusive=False):
 	"""Insert, optionally fill tax rows, then submit.
 
 	Orders built on the server get a tax template during validation but no tax
-	rows (F-16). Rows are appended after the first save, as a user would, and the
+	rows. Rows are appended after the first save, as a user would, and the
 	second save lets ERPNext and india_compliance compute every amount; computing
 	them before insert leaves india_compliance's per-row GST amounts stale. A locale
-	may fill the rows itself before insert (Germany: F-48); they are kept.
+	may fill the rows itself before insert (Germany: see DELocale._fill); they are kept.
 	"""
 	_dated(doc, pd)
 	if fill_taxes and tax_inclusive and doc.get("taxes"):  # rows the locale filled
@@ -237,7 +237,7 @@ def _save(doc, pd, submit=True, fill_taxes=False, tax_inclusive=False):
 
 def _price_list(doc, w):
 	"""Name the demo's price list on the document: the site's default may be in another
-	currency (another country's company), and the document's currency follows it (F-53)."""
+	currency (another country's company), and the document's currency follows it."""
 	if doc.meta.has_field("selling_price_list"):
 		doc.selling_price_list = w.selling_price_list
 	if doc.meta.has_field("buying_price_list"):
@@ -359,7 +359,7 @@ def purchase_order(p, w, pd):
 		)
 	doc.schedule_date = p.schedule_date
 	_price_list(doc, w)
-	w.locale.purchase_taxes(doc, w)  # India --unregistered: the no-ITC template (F-38)
+	w.locale.purchase_taxes(doc, w)  # India --unregistered: the not-recoverable template
 	return _save(doc, pd, fill_taxes=True)
 
 
@@ -420,7 +420,7 @@ def sales_order(p, w, pd):
 		quotation = "erpnext.selling.doctype.quotation.quotation"
 		# The public make_sales_order refuses quotations whose valid_till is before
 		# *today*, which every historical quotation is. Its inner mapper does the same
-		# mapping without that check (F-27; watch for upstream drift).
+		# mapping without that check (watch for upstream drift).
 		inner = mapper(quotation, "_make_sales_order", required=False)
 		if inner:
 			doc = inner(p.quotation, ignore_permissions=True)
@@ -590,8 +590,8 @@ def cancel(p, w, pd):
 		return doc
 	doc.flags.notify_update = False
 	doc.cancel()
-	# A cancellation queues a stock repost (F-31). Run it now, before the scheduler's
-	# worker picks it up and updates Bin rows under the writer (F-34).
+	# A cancellation queues a stock repost. Run it now, before the scheduler's
+	# worker picks it up and updates Bin rows under the writer (deadlocks).
 	from erpnext_demo_gen.service import process_reposts
 
 	process_reposts(w.company, log=lambda msg: None)

@@ -18,7 +18,7 @@ turnover <= EUR 25,000 and current year's <= EUR 100,000): sales carry no VAT, i
 to SKR04's "Erlöse aus Kleinunternehmer", and every invoice carries the § 19 note (Terms
 and Conditions); the company has no USt-IdNr. (its Steuernummer is not modelled). VAT paid
 on purchases cannot be deducted: "Valuation and Total" rows on a "Nicht abziehbare
-Vorsteuer" expense account, at each item's rate (in the cost of stock items, DEC-37).
+Vorsteuer" expense account, at each item's rate (in the cost of stock items, an expense for the rest).
 
 Furniture is 19%; staff coffee is food at 7%; bottled water is 19% (only tap water
 is reduced). Out of scope for the demo: EU and non-EU trade (reverse charge,
@@ -370,7 +370,7 @@ class DELocale(Locale):
 		"""Set the template and its rows before the first save. ERPNext adds tax rows only
 		to a document without any; with "Automatically add Taxes and Charges from Item
 		Tax Template" on (its default) it would also add a row for every account of the
-		item's template: input VAT, EU and reverse-charge accounts, each at 19% (F-48)."""
+		item's template: input VAT, EU and reverse-charge accounts, each at 19%."""
 		doc.taxes_and_charges = template
 		doc.set("taxes", [])
 		append_template_taxes(doc)
@@ -386,7 +386,7 @@ class DELocale(Locale):
 	)
 
 	def check_options(self, unregistered: bool):
-		"""--unregistered is supported: a Kleinunternehmer (DEC-36)."""
+		"""--unregistered is supported: a Kleinunternehmer (§ 19 UStG)."""
 
 	def resolve_region(self, text: str) -> str | None:
 		value = text.strip()

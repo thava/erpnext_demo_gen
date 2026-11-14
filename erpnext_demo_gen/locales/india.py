@@ -132,13 +132,14 @@ class IndiaLocale(Locale):
 			"country": "India",
 			"default_currency": "INR",
 			"chart_of_accounts": "Standard",
-			"default_gst_rate": "18.0",  # Select field of strings (F-24)
+			"default_gst_rate": "18.0",  # a Select field: its options are strings, not numbers
 			**({"gst_category": "Unregistered"} if params.get("registration") == "unregistered" else {}),
 		}
 
 	def wants_company_address(self, params) -> bool:
 		"""The GSTIN lives on the company address: none with --unregistered. In wizard mode the
-		company has none of its own (DEC-35), so the address carries a made-up one."""
+		company has none of its own (a company with a tax ID is refused), so the address
+		carries a made-up one."""
 		return params.get("registration") != "unregistered"
 
 	def company_address(self, rng: random.Random, company: str, region: str, wizard: bool) -> dict:
@@ -236,7 +237,7 @@ class IndiaLocale(Locale):
 		from frappe.utils.nestedset import get_root_of
 
 		templates = {}
-		not_recoverable = run.params.get("not_recoverable") or {}  # --unregistered: the demo's own (F-51)
+		not_recoverable = run.params.get("not_recoverable") or {}  # --unregistered: not recoverable
 		for rate, name in (not_recoverable.get("items") or {}).items():
 			templates[float(rate)] = name
 		for row in frappe.get_all(
@@ -254,7 +255,7 @@ class IndiaLocale(Locale):
 
 	def party_fields(self, p, w) -> dict:
 		"""Fields india_compliance's party hooks use: GSTIN and category, and _address_line1
-		etc. for the primary address its after_insert hook creates (F-25)."""
+		etc. for the primary address its after_insert hook creates."""
 		address = p.get("address") or {}
 		fields = {"gst_category": p.gst_category, "country": "India"}
 		if p.get("gstin"):
@@ -278,7 +279,8 @@ class IndiaLocale(Locale):
 		return {"gst_hsn_code": p.hsn, "taxes": [{"item_tax_template": w.item_tax_template(p.gst_rate)}]}
 
 	def purchase_taxes(self, doc, w):
-		"""Unregistered company (--unregistered): nothing picks a template (F-38), so select the
+		"""Unregistered company (--unregistered): india_compliance turns off all GST handling,
+		so nothing picks a template; select the
 		no-ITC one for a registered supplier, as the user would; an unregistered supplier
 		charges none. A registered company keeps what ERPNext picks."""
 		if w.tax_registered:
@@ -310,7 +312,7 @@ class IndiaLocale(Locale):
 		return []
 
 	def check_options(self, unregistered: bool):
-		"""--unregistered is supported: no GST, purchase GST in cost (F-38)."""
+		"""--unregistered is supported: no GST, purchase GST in cost."""
 
 	def resolve_region(self, text: str) -> str | None:
 		return geo.resolve_state(text)
@@ -343,7 +345,7 @@ class IndiaLocale(Locale):
 
 	def company_tax_id(self, company: str) -> str | None:
 		"""India keeps the GSTIN on the Company (india_compliance's field) or, the usual
-		place, on the company's own address (F-37)."""
+		place, on the company's own address; without one the company counts as unregistered."""
 		import frappe
 
 		if super().company_tax_id(company):
@@ -374,7 +376,7 @@ class IndiaLocale(Locale):
 
 	def check_wizard_company(self, company: str, params: dict, home_region: str | None, unregistered: bool):
 		"""A company without a GSTIN is unregistered for india_compliance, which then charges
-		no GST (F-37). Registered (the default): the demo adds a labelled company address
+		no GST. Registered (the default): the demo adds a labelled company address
 		with a made-up GSTIN, removed on uninstall. --unregistered: no address, no GST."""
 		super().check_wizard_company(company, params, home_region, unregistered)
 		if not unregistered:
@@ -387,10 +389,10 @@ class IndiaLocale(Locale):
 	def _gst_rows(self, ctx):
 		"""GST rows match the company's registration.
 
-		Registered (F-16): every submitted sale and every purchase from a GST-registered
+		Registered: every submitted sale and every purchase from a GST-registered
 		supplier carries GST rows, except zero-rated SEZ and export supplies made without
 		GST (under a bond). Unregistered (--unregistered): sales carry none, and those
-		purchases carry GST only on the "GST Not Recoverable" expense account (F-51), since
+		purchases carry GST only on the "GST Not Recoverable" expense account, since
 		no credit can be claimed: in the cost of stock items, an expense for the rest.
 		"""
 		import frappe

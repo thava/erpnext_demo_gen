@@ -1,6 +1,6 @@
-"""Desk entry points (the DemoGen page, design 5.19). System Managers only.
+"""Desk entry points (the DemoGen page). System Managers only.
 
-Thin wrappers over erpnext_demo_gen.service, like the CLI (M-13): the page validates an
+Thin wrappers over erpnext_demo_gen.service, like the CLI: the page validates an
 install the way the CLI does, then a long-queue job (jobs.py) runs it.
 """
 
@@ -10,7 +10,7 @@ from frappe import _
 from erpnext_demo_gen import jobs
 from erpnext_demo_gen.registry import DONE_STATES, Run
 
-PAGE_SIZES = ("small", "medium")  # large and snapshots stay CLI-only (DEC-33)
+PAGE_SIZES = ("small", "medium")  # the quick sizes; large and snapshots stay CLI-only
 SIZE_NOTES = {"small": (300, "1 min"), "medium": (1200, "5 min")}  # documents, time (README "Sizes")
 STALE_STATUSES = ("Running", "Uninstalling", "Planned")
 # country -> (the tax, the company's tax ID), for the registration option and the run card
@@ -308,7 +308,7 @@ def _dry_run(options: dict) -> dict | None:
 
 # ---------------------------------------------------------------- setup wizard
 def after_setup_wizard(args=None):
-	"""Tell whoever finished the setup wizard where DemoGen is (design 5.19 step 3)."""
+	"""Tell whoever finished the setup wizard where DemoGen is."""
 	try:
 		user = frappe.session.user
 		if not user or user == "Guest":

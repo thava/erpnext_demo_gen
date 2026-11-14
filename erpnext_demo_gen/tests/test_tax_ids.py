@@ -1,4 +1,4 @@
-"""Wizard mode never uses a real tax ID, and --unregistered per country (design 5.20, DEC-35)."""
+"""Wizard mode never uses a real tax ID, and --unregistered per country."""
 
 from unittest.mock import patch
 

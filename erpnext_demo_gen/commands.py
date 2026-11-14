@@ -11,7 +11,7 @@
     demo-gen snapshot build --country IN|US|AE|DE [--pack furniture_store] [--size medium] [--seed N]
     demo-gen snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
 
-Thin wrappers over erpnext_demo_gen.service (M-13).
+Thin wrappers over erpnext_demo_gen.service, like the desk page (api.py).
 """
 
 import click

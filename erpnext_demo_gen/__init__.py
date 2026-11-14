@@ -5,7 +5,7 @@ __version__ = "0.1.0"
 
 # When this process loaded each of the app's modules. A background worker started before the
 # app was updated keeps the modules it had loaded, and the jobs it forks inherit them; such a
-# job must not run old code next to new (jobs.stale_code_files, design 5.19).
+# job must not run old code next to new (jobs.stale_code_files).
 LOADED_AT: dict[str, float] = {__name__: time.time()}
 
 

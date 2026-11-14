@@ -15,7 +15,7 @@ name: CI
 #   weekly           large, every country and pack, on version-16. (develop's
 #                    large snapshots are built weekly by release.yml.)
 #   workflow_dispatch  any size, branch and country, never skipped.
-# A failure means ERPNext, india_compliance or this app has drifted (requirement M-13).
+# A failure means ERPNext, india_compliance or this app has drifted.
 
 on:
   push:

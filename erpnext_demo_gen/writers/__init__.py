@@ -1,9 +1,9 @@
-"""Writers execute a plan against the site (design 5.6).
+"""Writers execute a plan against the site.
 
 ApiWriter (tier 1) goes through ERPNext's own insert and submit paths, one
-document per transaction, committed together with its registry row (M-8). A
+document per transaction, committed together with its registry row. A
 failure rolls back only that document and is recorded as Failed with its error;
-dependants are recorded as Skipped (skip-and-log, M-12); transient database
+dependants are recorded as Skipped (skip and log); transient database
 conflicts are retried. Documents already in the registry are skipped, so a
 re-run resumes.
 """
@@ -100,7 +100,7 @@ def is_transient(error: Exception) -> bool:
 	again.
 
 	Frappe raises these as QueryDeadlockError / QueryTimeoutError wrapping the driver's
-	error, so the code is on the wrapped error, not on the wrapper (F-34).
+	error, so the code is on the wrapped error, not on the wrapper.
 	"""
 	if isinstance(error, (frappe.QueryDeadlockError, frappe.QueryTimeoutError)):
 		return True
@@ -116,7 +116,7 @@ def is_transient(error: Exception) -> bool:
 
 def connection_report() -> str:
 	"""Other connections to this database (and what they run), recorded when a
-	conflict outlasts every retry, to identify what keeps changing the rows (F-34)."""
+	conflict outlasts every retry, to identify what keeps changing the rows."""
 	try:
 		rows = frappe.db.sql(
 			# without the PROCESS privilege this lists the site user's own connections,
@@ -135,7 +135,7 @@ class ApiWriter:
 	"""Writes one document per transaction.
 
 	Batched commits with savepoints did not survive MariaDB aborting a transaction
-	when a background worker touched the same rows (F-34): the savepoint vanished
+	when a background worker touched the same rows: the savepoint vanished
 	with it. One document per commit costs little next to the ~0.2 s a document
 	takes, keeps every committed document registered, and makes a retry safe.
 	"""

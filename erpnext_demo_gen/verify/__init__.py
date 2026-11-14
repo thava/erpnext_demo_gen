@@ -1,4 +1,4 @@
-"""verify: check that an installed demo is internally consistent (M-10, design 5.13).
+"""verify: check that an installed demo is internally consistent.
 
 Each check returns a Check(name, ok, detail). The checks use ERPNext's own
 reports where they exist (receivable and payable aging, stock balance, gross
@@ -351,7 +351,7 @@ def check_banking(ctx) -> list[Check]:
 
 
 def check_supplies(ctx) -> list[Check]:
-	"""Own-use supplies (design 5.15): issues are expensed, and every stocked supply at or
+	"""Own-use supplies: issues are expensed, and every stocked supply at or
 	below its reorder level has a purchase request or order still open. Only for runs
 	that planned supplies."""
 	items = frappe.db.sql_list(

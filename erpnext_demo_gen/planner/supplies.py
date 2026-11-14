@@ -1,4 +1,4 @@
-"""Own-use inventory: office and shop supplies the business keeps for itself (design 5.15, D-13).
+"""Own-use inventory: office and shop supplies the business keeps for itself.
 
 Planned only when the pack has a `supplies` section (set in the country's base pack,
 since the items, their tax data and prices are country-specific):

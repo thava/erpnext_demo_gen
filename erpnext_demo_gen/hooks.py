@@ -10,7 +10,7 @@ app_license = "gpl-3.0"
 
 # required_apps = []
 
-# The apps screen shows DemoGen (design 5.19). No setup_wizard_text: it is not offered as a
+# The apps screen shows DemoGen. No setup_wizard_text: it is not offered as a
 # choice inside the setup wizard; a note after the wizard points to it instead.
 add_to_apps_screen = [
 	{

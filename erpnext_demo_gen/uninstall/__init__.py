@@ -1,6 +1,6 @@
-"""Uninstall a demo run (M-9, design 5.9).
+"""Uninstall a demo run without touching the user's own data.
 
-Order, as established by the Phase 0 spike (section 6.2):
+Order (each step needs the one before it):
 1. Restore the previous default company.
 2. Transactions. Tier B (default for a company the run created): ERPNext's
    Transaction Deletion Record for the whole company, in-process. Tier A (for
@@ -139,7 +139,7 @@ def delete_company_transactions(company: str, log=print):
 	log(f"Deleting transactions of {company} (Transaction Deletion Record)")
 	create_transaction_deletion_record(company)
 	frappe.db.commit()
-	# TDR's own status is unreliable (F-20); judge by what is left.
+	# TDR's own status can stay Running after it finished; judge by what is left.
 	left = {dt: frappe.db.count(dt, {"company": company}) for dt in LEDGERS}
 	left = {dt: n for dt, n in left.items() if n}
 	if left:
@@ -205,7 +205,7 @@ def release_company_links(company: str, log=print):
 	frappe.delete_doc runs before its link check (ERPNext: accounts, warehouses...;
 	Healthcare: service units; HRMS: its company_data_to_be_ignored records). One gap:
 	HRMS adds an Expense Claim Account row to every Expense Claim Type when a company
-	is saved and does not remove it (F-40). Such child-table rows mean nothing without
+	is saved and does not remove it. Such child-table rows mean nothing without
 	the company, so every child row that links to it is removed. Whole documents are
 	left to their apps; anything still linked keeps the company, and it is reported.
 	Only called for a company the demo created (tier B).
@@ -236,7 +236,7 @@ def blocker(doctype: str, name: str) -> str | None:
 		start, end = frappe.db.get_value("Fiscal Year", name, ["year_start_date", "year_end_date"])
 		filters = {"posting_date": ["between", [start, end]], "is_cancelled": 0}
 		companies = frappe.get_all("Fiscal Year Company", {"parent": name}, pluck="company")
-		if companies:  # limited to the demo company (F-53): only its entries count
+		if companies:  # limited to the demo company: only its entries count
 			filters["company"] = ["in", companies]
 		n = frappe.db.count("GL Entry", filters)
 		if n:
@@ -245,7 +245,7 @@ def blocker(doctype: str, name: str) -> str | None:
 
 
 def delete_company_addresses(company: str):
-	"""A company's own Address blocks deleting the company (F-21)."""
+	"""A company's own Address blocks deleting the company."""
 	for address in frappe.get_all(
 		"Dynamic Link",
 		filters={"link_doctype": "Company", "link_name": company, "parenttype": "Address"},

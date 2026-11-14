@@ -1,4 +1,4 @@
-"""Tier A uninstall: remove a run's transactions one by one, using the registry (design 5.9).
+"""Tier A uninstall: remove a run's transactions one by one, using the registry.
 
 For demo data generated into a company the user keeps (--use-wizard-company), so
 ERPNext's company-wide Transaction Deletion Record cannot be used. Walking the

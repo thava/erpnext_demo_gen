@@ -41,7 +41,7 @@ def inline_jobs(names=INLINE_JOBS):
 		frappe.enqueue = original
 
 
-# ---------------------------------------------------------------- desk page jobs (design 5.19)
+# ---------------------------------------------------------------- desk page jobs
 # Install and uninstall from the DemoGen page run as one long-queue job per site. The job
 # calls the same service functions as the CLI; its live state (latest progress and log
 # lines) is kept in the Redis cache, not the database, so writing it never commits the

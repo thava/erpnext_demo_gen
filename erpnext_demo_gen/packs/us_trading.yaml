@@ -1,5 +1,5 @@
 # Base for United States packs: a single-state Texas business that sells only in
-# Texas (design 5.14). Tax is fixed pack data with its source and date, never fetched.
+# Texas. Tax is fixed pack data with its source and date, never fetched.
 schema_version: 1
 id: us_trading
 locale: US                          # country: tax, addresses, names, fiscal year (erpnext_demo_gen/locales)
@@ -48,7 +48,7 @@ banking:
     supplier: {ACH: 0.70, Check: 0.20, Wire Transfer: 0.10}
   clearing_days: {ACH: [1, 2], Wire Transfer: [0, 0], Card: [1, 2], Check: [2, 5]}
 
-# Own-use inventory (design 5.15): supplies the business keeps for itself, counted in
+# Own-use inventory: supplies the business keeps for itself, counted in
 # their own store and reordered at their reorder level; bottled water is billed monthly.
 # Bought locally (Texas sales tax charged) or online from out of state (use tax owed);
 # coffee and water are food, exempt either way.
