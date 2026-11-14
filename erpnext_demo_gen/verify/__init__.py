@@ -8,8 +8,9 @@ passing verify also means those screens work on the data.
 from dataclasses import dataclass
 
 import frappe
-from frappe.utils import flt, getdate
+from frappe.utils import flt
 
+from erpnext_demo_gen.dates import to_date
 from erpnext_demo_gen.registry import DONE_STATES, Run
 
 TOLERANCE = 1.0  # currency units; rounding across hundreds of documents
@@ -62,7 +63,7 @@ def verify_run(run: Run) -> list[Check]:
 		return [Check("company exists", False, f"{company!r} not found")]
 	from erpnext_demo_gen.setup.company import date_range
 
-	start, end = date_range(getdate(run.params.end_date), run.params.months)
+	start, end = date_range(to_date(run.params.end_date), run.params.months)
 	ctx = frappe._dict(run=run, company=company, start=start, end=end)
 	checks = []
 	for fn in (
@@ -305,7 +306,7 @@ def check_banking(ctx) -> list[Check]:
 	)
 
 	ours = {a["bank_account"]: a["ledger"] for a in accounts.values()}
-	reconciled = reconciled_until(getdate(ctx.end))
+	reconciled = reconciled_until(to_date(ctx.end))
 	bank = [p for p in parties if p.mode_of_payment != "Cash"]
 	wrong = [
 		p.name
@@ -395,7 +396,7 @@ def check_supplies(ctx) -> list[Check]:
 	)
 	unordered = []
 	for row in low:
-		if last_issue.get(row.item) and getdate(last_issue[row.item]) >= getdate(ctx.end):
+		if last_issue.get(row.item) and to_date(last_issue[row.item]) >= to_date(ctx.end):
 			continue  # dropped on the last day; the reorder would come tomorrow
 		pending = frappe.db.sql(
 			"""select 1 from `tabMaterial Request Item` i join `tabMaterial Request` m on m.name = i.parent

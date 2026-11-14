@@ -17,11 +17,13 @@ demo tools stay ERPNext's, and the two can coexist.
 
 import random
 from datetime import date
+from typing import Any
 
 import frappe
-from frappe.utils import add_days, add_months, getdate
+from frappe.utils import add_days, add_months
 
 from erpnext_demo_gen import naming
+from erpnext_demo_gen.dates import to_date
 from erpnext_demo_gen.locales import get_locale
 from erpnext_demo_gen.registry import Run
 from erpnext_demo_gen.setup.tax_templates import purge_orphans
@@ -35,7 +37,7 @@ def rng_for(run: Run, purpose: str) -> random.Random:
 
 
 def date_range(end_date: date, months: int) -> tuple[date, date]:
-	return add_days(add_months(end_date, -months), 1), end_date
+	return to_date(add_days(add_months(end_date, -months), 1)), end_date
 
 
 def fiscal_year_starts(start: date, end: date, locale=None) -> list[date]:
@@ -88,7 +90,7 @@ def setup_company(run: Run, pack: dict) -> str:
 		return frappe.get_doc(
 			{
 				"doctype": "Address",
-				**locale.company_address(rng, company, home_state, bool(params.use_wizard_company)),
+				**(locale.company_address(rng, company, home_state, bool(params.use_wizard_company)) or {}),
 				"is_your_company_address": 1,
 				"is_primary_address": 1,
 				"links": [{"link_doctype": "Company", "link_name": company}],
@@ -117,7 +119,7 @@ def setup_company(run: Run, pack: dict) -> str:
 			).insert(ignore_permissions=True),
 		)
 
-	start, end = date_range(getdate(params.end_date), params.months)
+	start, end = date_range(to_date(params.end_date), params.months)
 	for fy_start in fiscal_year_starts(start, end, locale):
 		ensure_fiscal_year(run, fy_start, company, locale)
 
@@ -309,7 +311,7 @@ def setup_banking(run: Run, company: str, abbr: str, pack: dict):
 	for mode, account in targets.items():
 		if not frappe.db.exists("Mode of Payment", mode):
 			continue
-		doc = frappe.get_doc("Mode of Payment", mode)
+		doc: Any = frappe.get_doc("Mode of Payment", mode)
 		if not any(row.company == company for row in doc.accounts):
 			# Company.on_trash deletes these rows, so they need no registry entry
 			doc.append("accounts", {"company": company, "default_account": account})

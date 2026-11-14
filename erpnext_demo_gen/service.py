@@ -8,6 +8,7 @@ import json
 import frappe
 from frappe.utils import getdate, nowdate
 
+from erpnext_demo_gen.dates import to_date
 from erpnext_demo_gen.jobs import INLINE_JOBS, inline_jobs
 from erpnext_demo_gen.packs import describe, load_pack
 from erpnext_demo_gen.registry import RESUMABLE_STATUSES, Row, Run, active_runs
@@ -331,7 +332,7 @@ def plan_for(run: Run, pack: dict) -> list:
 	from erpnext_demo_gen.planner import PlanContext, make_plan
 	from erpnext_demo_gen.setup.company import date_range
 
-	start, end = date_range(getdate(run.params.end_date), run.params.months)
+	start, end = date_range(to_date(run.params.end_date), run.params.months)
 	ctx = PlanContext(pack, run.params.size, run.params.seed, run.params.home_state, start, end)
 	ctx.sales_tax = run.params.get("registration", "registered") == "registered"
 	return make_plan(ctx)
@@ -371,7 +372,7 @@ def write_plan(run: Run, pack: dict, log=print) -> dict:
 def plan_start(run: Run):
 	from erpnext_demo_gen.setup.company import date_range
 
-	return date_range(getdate(run.params.end_date), run.params.months)[0]
+	return date_range(to_date(run.params.end_date), run.params.months)[0]
 
 
 # ---------------------------------------------------------------- status
@@ -402,7 +403,7 @@ def history(run_name: str | None = None) -> list[Row]:
 		raise DemoDataError(f"No demo run {run_name!r}")
 	for r in runs:
 		run = Run(r.name)
-		r["months"] = frappe.parse_json(r.params or "{}").get("months")
+		r["months"] = json.loads(r.params or "{}").get("months")
 		r["events"] = run.events() or legacy_events(r)
 		if run_name:
 			r["installed"] = frappe.parse_json(run.doc.counts or "{}")

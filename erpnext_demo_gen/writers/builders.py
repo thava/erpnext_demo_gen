@@ -6,6 +6,8 @@ returns that one with `flags.demo_reused` set; the writer records it as Reused, 
 dependants can use it but uninstall leaves it alone.
 """
 
+from typing import Any
+
 import frappe
 from frappe.utils.nestedset import get_root_of
 from erpnext_demo_gen.compat import append_template_taxes, mapper
@@ -294,7 +296,7 @@ def funding_entry(p, w, pd):
 
 # ---------------------------------------------------------------- buying
 def material_request(p, w, pd):
-	doc = frappe.get_doc(
+	doc: Any = frappe.get_doc(
 		{
 			"doctype": "Material Request",
 			"material_request_type": p.get("type") or "Purchase",
@@ -344,6 +346,7 @@ def purchase_invoice_from_order(p, w, pd):
 
 
 def purchase_order(p, w, pd):
+	doc: Any
 	if p.get("material_request"):
 		make_purchase_order = mapper("erpnext.stock.doctype.material_request.material_request", "make_purchase_order")
 
@@ -421,6 +424,7 @@ def quotation(p, w, pd):
 
 
 def sales_order(p, w, pd):
+	doc: Any
 	if p.get("quotation"):
 		quotation = "erpnext.selling.doctype.quotation.quotation"
 		# The public make_sales_order refuses quotations whose valid_till is before
@@ -560,7 +564,7 @@ def bank_transfer(p, w, pd):
 
 	source = w.accounts["collection"]["ledger"] if p.source == "collection" else w.cash_account
 	target = w.accounts["main"]["ledger"]
-	amount = get_balance_on(account=source, date=pd.posting_date, company=w.company)
+	amount = get_balance_on(account=source, date=pd.posting_date, company=w.company) or 0
 	if amount <= 0:
 		frappe.throw(f"Nothing to transfer from {source} on {pd.posting_date} (balance {amount})")
 	doc = frappe.get_doc(

@@ -23,7 +23,9 @@ import subprocess
 from random import Random
 
 import frappe
-from frappe.utils import get_bench_path, getdate, now
+from frappe.utils import get_bench_path, now
+
+from erpnext_demo_gen.dates import to_date
 
 SNAPSHOT_DIR = "demo-snapshots"  # under the bench folder, outside sites/
 ADMIN_PASSWORD = "changeme"  # documented; snapshots hold only open, fictional data
@@ -323,10 +325,10 @@ def dump(out_dir: str):
 	base = os.path.join(out_dir, f"demo-{label}-{params.size}-s{params.seed}-{tag}-{dt.date.today():%Y%m%d}")
 
 	odb = new_backup(ignore_files=True, ignore_conf=True, compress=True, force=True, backup_path_db=f"{base}.sql.gz")
-	path = odb.backup_path_db
+	path: str = odb.backup_path_db or f"{base}.sql.gz"
 	from erpnext_demo_gen.setup.company import date_range
 
-	start, end = date_range(getdate(params.end_date), params.months)
+	start, end = date_range(to_date(params.end_date), params.months)
 	manifest = {
 		"format": 1,
 		"pack": params.pack,

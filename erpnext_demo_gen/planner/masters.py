@@ -29,7 +29,7 @@ def plan_masters(plan: Plan):
 
 # ---------------------------------------------------------------- terms and groups
 def used_terms(pack) -> list[str]:
-	return sorted({t for c in pack["channels"] for t in c["payment"] if t in TERM_DAYS}, key=TERM_DAYS.get)
+	return sorted({t for c in pack["channels"] for t in c["payment"] if t in TERM_DAYS}, key=lambda t: TERM_DAYS[t])
 
 
 def plan_payment_terms(plan: Plan):

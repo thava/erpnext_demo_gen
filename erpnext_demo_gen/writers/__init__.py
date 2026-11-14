@@ -15,8 +15,8 @@ from dataclasses import dataclass, field
 from datetime import date
 
 import frappe
-from frappe.utils import getdate
 
+from erpnext_demo_gen.dates import to_date
 from erpnext_demo_gen.planner import PlannedDoc
 from erpnext_demo_gen.registry import Run
 
@@ -56,7 +56,7 @@ class WriteContext:
 			company=company,
 			abbr=abbr,
 			default_warehouse=f"{pack['company']['warehouses'][0]} - {abbr}",
-			start_date=getdate(start_date),
+			start_date=to_date(start_date),
 			selling_price_list=(run.params.get("price_lists") or {}).get("selling")
 			or frappe.db.get_single_value("Selling Settings", "selling_price_list")
 			or "Standard Selling",
@@ -108,12 +108,13 @@ def is_transient(error: Exception) -> bool:
 	if isinstance(error, (frappe.QueryDeadlockError, frappe.QueryTimeoutError)):
 		return True
 	seen = set()
-	while error is not None and id(error) not in seen:
-		seen.add(id(error))
-		args = getattr(error, "args", ())
+	err: BaseException | None = error
+	while err is not None and id(err) not in seen:
+		seen.add(id(err))
+		args = getattr(err, "args", ())
 		if args and isinstance(args[0], int) and args[0] in (1020, 1205, 1213):
 			return True
-		error = args[0] if args and isinstance(args[0], BaseException) else error.__cause__
+		err = args[0] if args and isinstance(args[0], BaseException) else err.__cause__
 	return False
 
 
@@ -148,7 +149,7 @@ class ApiWriter:
 	def __init__(self, run: Run, wctx: WriteContext, max_failures: int | None = None, log=print):
 		self.run, self.wctx, self.log = run, wctx, log
 		self.max_failures = max_failures
-		self.stats = {"created": 0, "reused": 0, "failed": 0, "skipped": 0, "already": 0, "retried": 0, "transient": 0}
+		self.stats: dict[str, float] = {"created": 0, "reused": 0, "failed": 0, "skipped": 0, "already": 0, "retried": 0, "transient": 0}
 
 	def build(self, pd: PlannedDoc, done: dict):
 		from erpnext_demo_gen.writers import builders
@@ -166,7 +167,7 @@ class ApiWriter:
 					time.sleep(2**attempt)
 					continue
 				if is_transient(e):
-					e.demo_diagnostics = connection_report()
+					e.demo_diagnostics = connection_report()  # pyrefly: ignore[missing-attribute]
 				raise
 		raise AssertionError("unreachable: the last attempt returns or raises")
 

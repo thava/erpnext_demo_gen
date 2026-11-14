@@ -51,8 +51,10 @@ def demo_companies() -> list[str]:
 
 class Run:
 	def __init__(self, name: str):
-		self.doc = frappe.get_doc("Demo Data Run", name)
-		self.params = frappe._dict(json.loads(self.doc.params or "{}"))
+		# Any: a Document's fields come from its DocType at runtime, and frappe._dict types
+		# every key as "maybe None"
+		self.doc: Any = frappe.get_doc("Demo Data Run", name)
+		self.params: Any = frappe._dict(json.loads(str(self.doc.get("params") or "{}")))
 		self._seq = (
 			frappe.db.sql("select max(seq) from `tabDemo Data Record` where run=%s", (name,))[0][0] or 0
 		)
@@ -95,7 +97,7 @@ class Run:
 			values["finished_at"] = now
 		if error is not None:
 			values["error"] = error
-		event = {"at": str(now.replace(microsecond=0)), "status": status}
+		event: dict[str, Any] = {"at": str(now.replace(microsecond=0)), "status": status}
 		if totals:
 			event["documents"] = self.totals()
 		if error:
@@ -106,7 +108,7 @@ class Run:
 		frappe.db.commit()
 
 	def events(self) -> list[dict]:
-		return frappe.parse_json(self.doc.get("events") or "[]")
+		return json.loads(self.doc.get("events") or "[]")
 
 	def totals(self) -> dict:
 		"""Documents per state across all doctypes, e.g. {"Submitted": 850, "Created": 150}."""

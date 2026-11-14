@@ -266,7 +266,7 @@ def _documents(totals: dict) -> str:
 
 def _events(events: list[dict]) -> list[tuple[str, str, bool]]:
 	"""(time, text, starts an install) for each status change, labelled by what it means."""
-	from frappe.utils import get_datetime
+	from erpnext_demo_gen.dates import to_datetime
 
 	out, phase, started = [], "install", None
 	for e in events:
@@ -286,7 +286,7 @@ def _events(events: list[dict]) -> list[tuple[str, str, bool]]:
 			label = f"{phase} failed"
 		text = label
 		if st in ("Completed", "Uninstalled", "Failed") and started:
-			seconds = (get_datetime(e["at"]) - get_datetime(started)).total_seconds()
+			seconds = (to_datetime(e["at"]) - to_datetime(started)).total_seconds()
 			text += f" after {_duration(seconds)}"
 		if e.get("documents"):
 			text += " (" + ", ".join(f"{s} {n}" for s, n in sorted(e["documents"].items())) + ")"
@@ -316,12 +316,14 @@ def _log(message: str):
 
 def _took(run) -> str:
 	"""Time since the latest start (install or uninstall), e.g. " after 4 min"."""
-	from frappe.utils import get_datetime, now_datetime
+	from frappe.utils import now_datetime
+
+	from erpnext_demo_gen.dates import to_datetime
 
 	starts = [e["at"] for e in run.events() if e["status"] in ("Running", "Uninstalling")]
 	if not starts:
 		return ""
-	return f" after {_duration((now_datetime() - get_datetime(starts[-1])).total_seconds())}"
+	return f" after {_duration((now_datetime() - to_datetime(starts[-1])).total_seconds())}"
 
 
 def _counts_table(counts: dict):

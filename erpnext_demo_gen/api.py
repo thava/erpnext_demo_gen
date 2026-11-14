@@ -156,9 +156,10 @@ def _tax_id(country: str | None, company: str | None) -> str | None:
 		if gstin:
 			return gstin
 		addresses = frappe.get_all("Dynamic Link", {"link_doctype": "Company", "link_name": company, "parenttype": "Address"}, pluck="parent")
-		return addresses and frappe.db.get_value(
-			"Address", {"name": ["in", addresses], "is_your_company_address": 1, "gstin": ["is", "set"]}, "gstin"
-		) or None
+		if not addresses:
+			return None
+		own = {"name": ["in", addresses], "is_your_company_address": 1, "gstin": ["is", "set"]}
+		return frappe.db.get_value("Address", own, "gstin") or None
 	return frappe.db.get_value("Company", company, "tax_id") or None
 
 
