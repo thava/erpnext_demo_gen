@@ -319,7 +319,7 @@ def check_banking(ctx) -> list[Check]:
 	cleared = sum(1 for p in bank if p.clearance_date)
 	consistent = Check(
 		"bank payments use the demo bank accounts and clear consistently",
-		not wrong and cleared and cleared < len(bank),
+		bool(not wrong and cleared and cleared < len(bank)),
 		", ".join(wrong[:5]) or f"{cleared} cleared, {len(bank) - cleared} not yet (reconciled up to {reconciled})",
 	)
 

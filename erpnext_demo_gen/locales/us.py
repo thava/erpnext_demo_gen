@@ -568,7 +568,6 @@ class USLocale(Locale):
 		import frappe
 		from frappe.utils import flt
 
-		from erpnext_demo_gen.locales.us import TAX_CATEGORY_RESELLER
 		from erpnext_demo_gen.verify import Check
 
 		sales = frappe.db.sql(

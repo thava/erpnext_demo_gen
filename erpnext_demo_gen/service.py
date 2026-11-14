@@ -10,7 +10,7 @@ from frappe.utils import getdate, nowdate
 
 from erpnext_demo_gen.jobs import INLINE_JOBS, inline_jobs
 from erpnext_demo_gen.packs import describe, load_pack
-from erpnext_demo_gen.registry import RESUMABLE_STATUSES, Run, active_runs
+from erpnext_demo_gen.registry import RESUMABLE_STATUSES, Row, Run, active_runs
 
 # Transactions in the user's own company are removed by tier A (registry-based) uninstall.
 WIZARD_COMPANY_SUPPORTED = True
@@ -390,7 +390,7 @@ def status() -> dict:
 	return {"runs": len(runs), "by_status": by_status, "active": active, "latest": runs[0] if runs else None}
 
 
-def history(run_name: str | None = None) -> list[dict]:
+def history(run_name: str | None = None) -> list[Row]:
 	"""Runs with their install and uninstall events; the CLI merges them into one timeline.
 
 	With run_name, that run only, plus per doctype what the install created

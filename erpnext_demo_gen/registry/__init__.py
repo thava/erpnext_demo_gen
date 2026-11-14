@@ -10,9 +10,14 @@ Every document the app creates goes through `Run.ensure`:
 import json
 import traceback
 from collections.abc import Callable
+from typing import Any
 
 import frappe
 from frappe.utils import now_datetime
+
+# A row from frappe.get_all: a frappe._dict, its fields readable as attributes. Typed Any
+# because frappe._dict types every attribute as "maybe None".
+Row = Any
 
 ACTIVE_STATUSES = ("Planned", "Running", "Failed", "Completed", "Uninstalling")
 RESUMABLE_STATUSES = ("Planned", "Running", "Failed")
@@ -31,7 +36,7 @@ def app_versions() -> dict:
 	return versions
 
 
-def active_runs() -> list[dict]:
+def active_runs() -> list[Row]:
 	return frappe.get_all(
 		"Demo Data Run",
 		filters={"status": ["in", ACTIVE_STATUSES]},
@@ -175,7 +180,7 @@ class Run:
 		)
 		return {r.plan_key: r.ref_name for r in rows}
 
-	def records(self, states=DONE_STATES, reverse=False) -> list[dict]:
+	def records(self, states=DONE_STATES, reverse=False) -> list[Row]:
 		return frappe.get_all(
 			"Demo Data Record",
 			filters={"run": self.name, "state": ["in", states]},

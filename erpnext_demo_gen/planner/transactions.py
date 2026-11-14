@@ -22,6 +22,7 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from typing import Any
 
 from erpnext_demo_gen.planner import Plan, ref, weighted
 from erpnext_demo_gen.planner.masters import TERM_DAYS
@@ -264,7 +265,7 @@ def amount_of(lines, items, rate_field="sell", taxed=True) -> float:
 def plan_counter_sales(ctx, tl, rng, channel, dates, pick_customer, pick_lines, items, terms_days):
 	"""Showroom: invoice with stock update, paid at the counter or on credit."""
 	rates = ctx.pack["behavior"]["rates"]
-	sales = []
+	sales: list[dict[str, Any]] = []  # date, customer, lines, days; later draft, return
 	for d in dates:
 		customer = pick_customer()
 		low, high = channel.get("lines", [1, 2])

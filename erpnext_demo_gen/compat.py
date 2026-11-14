@@ -1,6 +1,8 @@
 """Small shims for ERPNext APIs that differ between major versions."""
 
 import importlib
+from collections.abc import Callable
+from typing import Literal, overload
 
 
 def append_template_taxes(doc):
@@ -21,7 +23,11 @@ def append_template_taxes(doc):
 	doc.extend("taxes", taxes._get_taxes_and_charges(master, doc.taxes_and_charges) or [])
 
 
-def mapper(module: str, name: str, required: bool = True):
+@overload
+def mapper(module: str, name: str, required: Literal[True] = True) -> Callable: ...
+@overload
+def mapper(module: str, name: str, required: Literal[False]) -> Callable | None: ...
+def mapper(module: str, name: str, required: bool = True) -> Callable | None:
 	"""A "make X from Y" function, wherever this ERPNext version keeps it.
 
 	    mapper("erpnext...purchase_order.purchase_order", "make_purchase_receipt")
@@ -38,4 +44,5 @@ def mapper(module: str, name: str, required: bool = True):
 			return fn
 	if required:
 		raise ImportError(f"{name} is in neither {module} nor its mapper module")
+	return None
 	return None

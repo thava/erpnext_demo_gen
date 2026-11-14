@@ -168,6 +168,7 @@ class ApiWriter:
 				if is_transient(e):
 					e.demo_diagnostics = connection_report()
 				raise
+		raise AssertionError("unreachable: the last attempt returns or raises")
 
 	def execute(self, plan: list[PlannedDoc]):
 		done = self.run.done_map()
