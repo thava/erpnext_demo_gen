@@ -1,5 +1,7 @@
 """Small shims for ERPNext APIs that differ between major versions."""
 
+import importlib
+
 
 def append_template_taxes(doc):
 	"""Append the rows of the document's tax template (taxes_and_charges).
@@ -12,10 +14,11 @@ def append_template_taxes(doc):
 		return
 	if not doc.get("taxes_and_charges"):
 		return
-	from erpnext.accounts.services.taxes import _get_taxes_and_charges
-
+	# imported by name: the module does not exist on v16, and a static import would be
+	# reported as missing by type checkers there
+	taxes = importlib.import_module("erpnext.accounts.services.taxes")
 	master = doc.meta.get_field("taxes_and_charges").options
-	doc.extend("taxes", _get_taxes_and_charges(master, doc.taxes_and_charges) or [])
+	doc.extend("taxes", taxes._get_taxes_and_charges(master, doc.taxes_and_charges) or [])
 
 
 def mapper(module: str, name: str, required: bool = True):
@@ -26,8 +29,6 @@ def mapper(module: str, name: str, required: bool = True):
 	v16 keeps these in the doctype's own module; develop (v17) moved them to a mapper.py
 	next to it. Returns None when not required and found in neither.
 	"""
-	import importlib
-
 	for path in (module, module.rsplit(".", 1)[0] + ".mapper"):
 		try:
 			fn = getattr(importlib.import_module(path), name, None)
