@@ -1,135 +1,131 @@
-# erpnext_demo_gen: Demo Generator for ERPNext
+# DemoGen: Demo Generator for ERPNext
 
 [![Tests: version-16](https://github.com/thava/erpnext_demo_gen/actions/workflows/tests-v16.yml/badge.svg?branch=main)](https://github.com/thava/erpnext_demo_gen/actions/workflows/tests-v16.yml)
 [![Tests: develop](https://github.com/thava/erpnext_demo_gen/actions/workflows/tests-develop.yml/badge.svg?branch=main)](https://github.com/thava/erpnext_demo_gen/actions/workflows/tests-develop.yml)
 
-Fills an ERPNext site with realistic demo data. One command adds it; one command removes it.
+DemoGen is a Frappe app that fills an ERPNext site with realistic fictional business
+history for demonstrations, development, and testing. Generate a demo from the command
+line or the DemoGen page in Frappe Desk, explore it in ERPNext, then remove it when finished.
 
-The badges show whether DemoGen's tests pass on Frappe/ERPNext version-16 and on develop
-(the next major version). They run on every change to this app, and every night against
-that day's Frappe and ERPNext.
+- Creates a demo company with quotations, orders, deliveries, invoices, payments,
+  returns, stock movements, bank transfers, and office supplies.
+- Uses country-specific taxes, charts of accounts, addresses, banks, and names.
+- Supports registered and [unregistered businesses](#unregistered-businesses) in India, the UAE, and Germany.
+- Verifies that ledgers balance, reports agree with transactions, and demo tax rules are applied.
+- Removes the demo company and the data DemoGen created with one command.
 
-## What it does
+By default, the demo becomes your default company until you remove it. **Removal also
+deletes transactions you manually add to that demo company.** See [Removing demo data](#removing-demo-data)
+for how to preserve your additions.
 
-- Creates a demo company with months or years of business history.
-- The history has quotations, orders, deliveries, invoices, payments, returns, stock
-  and bank transfers, plus the company's own office supplies.
-- Each country gets its own tax set-up, chart of accounts, addresses, banks and names.
-- `verify` checks the result: ledgers balance, reports match invoices, tax is right.
-- `uninstall` removes everything the demo created. Your own data stays.
-- The same options give the same data, on any site.
+**Start here:** developers can use the [quick start](#quick-start); support and demo users
+can use the [DemoGen page](#the-demogen-page) after an administrator installs the app.
+For a ready-made medium or large demo, use a [snapshot](#snapshots).
 
-Countries and packs (a pack is a type of business):
-
-```
-India                    furniture_store, electrical_distributor
-United States            furniture_store
-UAE                      furniture_store
-Germany                  furniture_store
-```
+[Requirements](#requirements) · [Customization](#customizing-a-demo) ·
+[Removal](#removing-demo-data) · [Unregistered businesses](#unregistered-businesses) ·
+[Country details](#countries) ·
+[Demo contents](#what-the-demo-includes) · [Snapshots](#snapshots) ·
+[Troubleshooting](#troubleshooting) · [Command reference](#command-reference) ·
+[Development](#development) · [Disclaimer](#disclaimer)
 
 ## Requirements
 
-- frappe and erpnext version 16, or their `develop` branch (the next major version).
-- The setup wizard is finished. The usual case, and what CI tests, is a site set up for
-  the demo's country (a German demo on a site set up for Germany, in EUR).
-- Another country's demo on the same site: an Indian demo on a site set up for the US
-  works (tested; the UAE and Germany use the same calendar as the US). It gets its own April-to-March fiscal years, limited to the demo
-  company, and price lists in INR. Demos for the US, UAE and Germany need a site without
-  india_compliance: it requires GST details (an HSN code) on every item and party on the
-  site, whatever the company's country. Install says so before it starts.
-- The Redis queue is running (`bench start`). Uninstall needs it.
-- For the desk page: a background worker on the queue (name=long); `bench start` runs one.
-- India only: the india_compliance app.
+- A working Bench with Frappe and ERPNext **version 16**, or both on **develop**.
+- A site with the initial setup wizard completed. Choose the **same country in the
+  wizard as the demo you intend to generate**. Mixing countries on one site is not
+  recommended or officially supported; use a separate site for each country.
+- Keep `bench start` running in another terminal while using DemoGen in a development bench.
+  On a production bench, keep the equivalent managed services running.
+- India demos require **India Compliance** (`india_compliance`) installed on the site.
+  US, UAE, and Germany demos require a site **without** India Compliance.
 
-## Installation
+A **pack** describes a type of business:
 
-The examples in this README use a site called `demo.localhost`.
+| Country | Code | Available packs |
+| --- | --- | --- |
+| India | `IN` | `furniture_store`, `electrical_distributor` |
+| United States | `US` | `furniture_store` |
+| United Arab Emirates | `AE` | `furniture_store` |
+| Germany | `DE` | `furniture_store` |
+
+<details>
+<summary>Advanced: services, country dependencies, and compatibility</summary>
+
+The CLI needs Redis running, but no worker: it runs generation and removal itself.
+Desk also needs the web server and a worker listening on the `long` queue, because it
+queues generation and removal as background jobs there. `bench start` starts all of
+these together.
+
+India Compliance validates shared items and parties across the site, regardless of
+company country. This is why other countries' demos need a site without it.
+
+The badges above show automated tests against version 16 and develop. Tests run on
+app changes and nightly against that day's Frappe and ERPNext. Develop is a moving
+branch; check the badge and snapshot release notes when using it.
+
+</details>
+
+## Quick start
+
+Run Bench commands from your bench directory. Replace `demo.localhost` with your site
+name. This example uses a site configured for **India**, with India Compliance installed;
+for another country, use its code and a matching site.
+
+### 1. Install the app
 
 ```bash
 bench get-app https://github.com/thava/erpnext_demo_gen
 bench --site demo.localhost install-app erpnext_demo_gen
 ```
 
-## Command summary
+### 2. Generate a small demo
 
-A quick reference. The [tutorial](#tutorial) below explains each option with examples.
+With `bench start` running in another terminal:
 
 ```bash
-bench --site <site> demo-gen list-packs
-bench --site <site> demo-gen install --country IN|US|AE|DE [--pack NAME] [--size small|medium|large]
-      [--seed N] [--end-date YYYY-MM-DD] [--home-state STATE] [--demo-company-name NAME]
-      [--use-wizard-company] [--unregistered] [--force] [--verbose]
-bench --site <site> demo-gen status
-bench --site <site> demo-gen history [--run DD-RUN-00001] [--limit 20]
-bench --site <site> demo-gen verify [--run DD-RUN-00001]
-bench --site <site> demo-gen uninstall [--run DD-RUN-00001] [--yes] [--registry-only] [--no-backup]
-bench demo-gen snapshot build --country IN|US|AE|DE [--pack NAME] [--size medium] [--seed N]
-bench demo-gen snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
+bench --site demo.localhost demo-gen install --country IN --size small
 ```
 
-## The DemoGen page
+This creates about 300 documents covering three months, usually in about a minute.
+`--country` is the only required generation option; the CLI defaults to the
+`furniture_store` pack and `medium` size when those options are omitted. Each generation
+is a **run**, identified by a
+name such as `DD-RUN-00009`. Progress and the generated company name appear in the terminal.
 
-After installing the app, open **DemoGen** on the apps screen, or go to `/desk/demo-gen`.
-It is for System Managers. Whoever finishes the setup wizard also gets a notification
-pointing to it.
+### 3. Verify and explore
 
-```
-status      the installed demo: company, country, pack, tax registration (with its imaginary
-            tax ID), size, data period, documents; Verify (the same checks as demo-gen
-            verify), Uninstall, Open company
-install     country, pack, size (small or medium), registered for tax (on by default; untick
-            for a business not registered: India, UAE, Germany), home state, company name,
-            seed, end date
-progress    "120 of 279 documents written, about 30 s left", with the log;
-            Resume install after a stop, as re-running the CLI command does
-history     recent runs; the Demo Data Run list has every run and its events
-help        the command line for each action, and what is command line only
+```bash
+bench --site demo.localhost demo-gen verify
 ```
 
-- Install and uninstall run as background jobs on the queue (name=long), one at a time per site.
-  The page shows "Waiting for a background worker" when no worker picks the job up.
-- The page asks once before installing when something needs the CLI's `--force` (a site
-  that already has transactions, a business not registered for tax), and asks you to type
-  the company name before uninstalling.
-- Command line only: `--size large`, `--use-wizard-company`, `uninstall --registry-only`
-  and `--no-backup`, and snapshots.
+Open your site in the browser, then open **DemoGen** from the apps screen or go to
+`/desk/demo-gen`. Explore invoices, stock, accounts, and reports for the demo company.
+Verification returns exit code 1 if a check fails; checks vary by country.
 
-### The demo company's tax registration
+### 4. Remove the demo data
 
-A registered demo company gets imaginary tax IDs (valid format and check digit), shown where
-ERPNext shows them and summed up in the company's *Registration Details*:
-
-```
-India     GSTIN on the company address and on the Company (GST Category "Registered
-          Regular"); PAN in Registration Details
-UAE       TRN as the Company's Tax ID
-Germany   USt-IdNr. as the Tax ID; a Steuernummer in Registration Details
-US        EIN as the Tax ID; the Texas sales and use tax permit (taxpayer number) in
-          Registration Details, since ERPNext has no field for it
+```bash
+bench --site demo.localhost demo-gen uninstall
 ```
 
-Not registered (`--unregistered`, or the unticked option on the page): no tax ID, and
-Registration Details says so. Installing into your own company (`--use-wizard-company`)
-leaves its Registration Details alone; India's imaginary GSTIN is shown on it while the demo
-is installed and removed again on uninstall.
-- After updating the app, restart the workers (`bench restart`; in development, restart
-  `bench start`). A worker keeps the code it had loaded, so the page refuses to run a job
-  on code older than the app's files and says so.
+Confirm the prompt to delete the demo company, its transactions, and the records
+DemoGen created, and restore the previous default company. Transactions you added to
+the demo company are also deleted. To keep your additions, see [Removing demo data](#removing-demo-data).
 
-## Tutorial
+`install-app` installs the Frappe app. `demo-gen install` generates data;
+`demo-gen uninstall` removes that data and leaves the app installed.
 
-### Install, check, remove
+<details>
+<summary>Example CLI output: generation, verification, and removal</summary>
 
-Install an Indian demo:
+These shortened examples show a medium Indian demo. Counts and timings vary.
 
 ```bash
 bench --site demo.localhost demo-gen install --country IN
 ```
 
-The output looks like this (shortened):
-
-```
+```text
 Pack: furniture_store (its default pack), country: India (IN), currency INR
 Started DD-RUN-00009
 Setting up the company, warehouses, fiscal years and bank accounts...
@@ -142,7 +138,6 @@ DD-RUN-00009 completed: 1210 documents in Indigo Brass Home Studio Pvt Ltd after
 Check it with: demo-gen verify. Remove it with: demo-gen uninstall.
 ```
 
-- `--country` is the only required option.
 - Each install is a *run* with its own number (`DD-RUN-00009`).
 - The run creates a new company. Its name is made up (here "Indigo Brass Home Studio Pvt Ltd").
 - The size is `medium` by default: 12 months of data, about 1,200 documents.
@@ -153,7 +148,7 @@ Check the result:
 bench --site demo.localhost demo-gen verify
 ```
 
-```
+```text
 DD-RUN-00009 (Indigo Brass Home Studio Pvt Ltd)
   ok   trial balance balances: debit - credit = 0.00
   ok   receivable aging matches outstanding: report 1,886,615.00, invoices 1,886,615.00, ...
@@ -173,16 +168,231 @@ Remove it:
 bench --site demo.localhost demo-gen uninstall
 ```
 
-```
+```text
 Delete demo data of DD-RUN-00009 (Indigo Brass Home Studio Pvt Ltd)? [y/N]: y
 Deleting transactions of Indigo Brass Home Studio Pvt Ltd (Transaction Deletion Record)
 Deleting the demo's customers, suppliers, items and other setup records...
 DD-RUN-00009 uninstalled after 29 s
 ```
 
-- Uninstall deletes the whole demo company.
-- That includes anything you added to the demo company yourself while exploring.
-- Add `--yes` to skip the question (useful in scripts).
+</details>
+
+## The DemoGen page
+
+After an administrator installs the app, users with the **System Manager** role can
+open **DemoGen** from the apps screen or visit `/desk/demo-gen`. The user who completes
+the setup wizard also receives a notification pointing to it.
+
+1. Choose the site's country, pack, and size (`small` or `medium`). Adjust optional settings as needed.
+2. Select **Install** and watch the progress and log. A stopped generation can be resumed.
+3. Select **Verify** to check the result, or **Open company** to inspect the company.
+4. Select **Uninstall** to remove the demo; type the company name to confirm.
+
+![DemoGen form for choosing a country, pack, size, and optional settings](docs/images/demogen-home.png)
+
+The **Registered for tax** option is on by default; untick it for an
+[unregistered business](#unregistered-businesses) in India, the UAE, or Germany.
+
+The page shows the active demo's company, tax registration, data period, document count,
+and recent runs. It handles one demo at a time. **Large demos, snapshots, reusing your
+own company, and advanced removal options are CLI-only.**
+
+<details>
+<summary>View a completed demo</summary>
+
+![Completed demo with Verify, Uninstall, Open company, and run history](docs/images/demogen-after-install.png)
+
+</details>
+
+The page asks for confirmation when an action needs the CLI's `--force` option.
+Generation and removal jobs run one at a time per site. The page’s Help shows the
+corresponding CLI commands; the **Demo Data Run** list contains all runs and their events.
+If it shows “Waiting for a background worker,” see [Troubleshooting](#troubleshooting).
+
+### Updating the app
+
+After updating the app, restart workers with `bench restart`; in development, stop and
+restart `bench start`. Workers retain loaded code, so the page refuses jobs when its
+worker code is older than the app's files.
+
+## Customizing a demo
+
+The examples below are alternatives. Use a site configured for the country shown,
+and remove the active demo before generating a different one.
+
+### Choose the country
+
+`--country` takes a code or a name. Case, spaces and hyphens do not matter.
+
+```bash
+bench --site demo.localhost demo-gen install --country IN          # or india
+bench --site demo.localhost demo-gen install --country US          # or USA, "United States", united-states
+bench --site demo.localhost demo-gen install --country AE          # or UAE, united-arab-emirates
+bench --site demo.localhost demo-gen install --country Germany     # or DE, Deutschland
+```
+
+- There is no default country. The country decides the tax rules, so you always choose it.
+- Use the country selected in the site's initial setup wizard. Mixed-country sites are not officially supported.
+
+<details>
+<summary>Choose the pack</summary>
+
+List the packs:
+
+```bash
+bench --site demo.localhost demo-gen list-packs
+```
+
+```
+Pack                     Countries       Sizes                  Title
+electrical_distributor   IN              small, medium, large   Electrical Equipment Distributor
+furniture_store          AE, DE, IN, US  small, medium, large   Furniture Store; ...
+Default pack per country: AE furniture_store, DE furniture_store, IN furniture_store, US furniture_store
+```
+
+```bash
+bench --site demo.localhost demo-gen install --country IN --pack electrical_distributor
+bench --site demo.localhost demo-gen install --country IN      # furniture_store, the default for India
+```
+
+- `--pack` is optional. Each country has a default pack.
+- One pack can exist in several countries. The country is not part of the pack name.
+
+</details>
+
+### Choose the size
+
+The CLI defaults to `medium`; the Desk form starts with `small`.
+
+```bash
+bench --site demo.localhost demo-gen install --country US --size small    # 3 months, about 300 documents, 1 minute
+bench --site demo.localhost demo-gen install --country US                 # medium: 12 months, about 1,200 documents, 5 minutes
+bench --site demo.localhost demo-gen install --country US --size large   # 24 months, about 19,000 documents, 1 to 2 hours
+```
+
+- `small` is for quick tests and bug reports. It still has every kind of document
+  the demo makes, but few customers and items.
+- `medium` is the default and suits most demos.
+- `large` looks like a real business, but takes an hour or more.
+  [Download a ready-made snapshot](#download-a-ready-made-snapshot) instead, and restore it in seconds.
+- Times for every pack are under [Sizes](#sizes).
+
+### Get the same data again, or different data
+
+```bash
+bench --site demo.localhost demo-gen install --country IN --seed 7
+```
+
+- The seed picks the names, items, customers and amounts. The default is 1.
+- With the same app and pack version, seed, options, and explicit `--end-date`,
+  the planner reproduces the same demo scenario. Record names can depend on existing site data.
+  Without `--end-date`, the data ends today, so dates shift from day to day.
+- A different seed changes the generated names and data.
+
+```bash
+bench --site demo.localhost demo-gen install --country IN --end-date 2026-03-31
+```
+
+- Data ends on `--end-date`. The default is today.
+- `2026-03-31` ends the data at the close of India's fiscal year.
+
+<details>
+<summary>Name the demo company</summary>
+
+```bash
+bench --site demo.localhost demo-gen install --country US --demo-company-name "Lone Star Furniture Inc"
+# Creates the company "Lone Star Furniture Inc" and makes it the default company.
+
+bench --site demo.localhost demo-gen uninstall --yes
+# Deletes "Lone Star Furniture Inc" and restores the default company you had before.
+```
+
+- Without `--demo-company-name`, the name is made up from the seed.
+
+</details>
+
+<details>
+<summary>Choose the home state</summary>
+
+The demo company's address is in the pack's home state. Change it with `--home-state`:
+
+```bash
+bench --site demo.localhost demo-gen install --country IN --home-state MH         # Maharashtra (default: Tamil Nadu)
+bench --site demo.localhost demo-gen install --country IN --home-state 27         # the same, by GST state code
+bench --site demo.localhost demo-gen install --country AE --home-state SH         # Sharjah (default: Dubai)
+bench --site demo.localhost demo-gen install --country DE --home-state HH         # Hamburg (default: Bayern)
+```
+
+- India: any state or union territory, by name ("Maharashtra"), two-letter code (MH)
+  or GST state code (27).
+- Customers outside the home state, and suppliers, are placed in the larger
+  commercial states.
+- UAE: an emirate (DU, AZ, SH, AJ, RK, FU, UQ) or its name.
+- Germany: a Bundesland (BY, BE, HH, NW, BW, HE, NI, SN, RP, SH) or its name.
+- US: home state fixed to `TX` (Texas), with sales only within Texas. Purchases from
+  other US states are supported; see [United States](#united-states).
+- Most customers are in the home state; suppliers are spread wider, as for a real business.
+
+</details>
+
+<details>
+<summary>A site that is already in use</summary>
+
+If the site already has transactions, install stops and explains:
+
+```bash
+bench --site demo.localhost demo-gen install --country IN
+```
+
+```
+This site already has transactions:
+  Kaveri Traders (default company): 42 documents, 180 GL entries
+The demo goes into a new, separate company (a peer, not a child company) and
+does not change these. It becomes the default company while installed;
+uninstall deletes it and restores the current default.
+This is safe, but because the site is in use, installing needs --force.
+```
+
+```bash
+bench --site demo.localhost demo-gen install --country IN --force
+```
+
+- `--force` is also needed when the GST API is on (India), or with `--unregistered`.
+
+</details>
+
+<details>
+<summary>Stop and resume</summary>
+
+```bash
+bench --site demo.localhost demo-gen install --country US --size large
+# ... press Ctrl+C, or the machine restarts ...
+bench --site demo.localhost demo-gen install --country US --size large
+# The same command resumes where it stopped.
+```
+
+If you resume on a later day and originally omitted `--end-date`, pass the original
+run’s end date explicitly. Otherwise “today” changes the inputs. Desk’s **Resume install**
+uses the saved inputs automatically.
+
+</details>
+
+<details>
+<summary>See every document created</summary>
+
+```bash
+bench --site demo.localhost demo-gen install --country AE --verbose
+# At the end, prints how many documents of each doctype were created.
+```
+
+A **DocType** is a Frappe record type, such as Sales Invoice or Customer.
+Created records are tracked in the *Demo Data Record* list under their *Demo Data Run*.
+Uninstall uses that record, together with ERPNext's Transaction Deletion Record.
+
+</details>
+
+<details>
+<summary>Status, history, and run IDs</summary>
 
 ### See what is installed
 
@@ -212,205 +422,31 @@ bench --site demo.localhost demo-gen history --limit 4
 bench --site demo.localhost demo-gen history --run DD-RUN-00009   # one run, with counts per doctype
 ```
 
-### Choose the country
+</details>
 
-`--country` takes a code or a name. Case, spaces and hyphens do not matter.
+## Removing demo data
 
-```bash
-bench --site demo.localhost demo-gen install --country IN          # or india
-bench --site demo.localhost demo-gen install --country US          # or USA, "United States", united-states
-bench --site demo.localhost demo-gen install --country AE          # or UAE, united-arab-emirates
-bench --site demo.localhost demo-gen install --country Germany     # or DE, Deutschland
-```
-
-- There is no default country. The country decides the tax rules, so you always choose it.
-- The site's setup wizard must match: an Indian site for `IN`, a German site for `DE`.
-
-### Choose the pack
-
-List the packs:
+Default removal deletes the demo company’s transactions, then removes the company
+and the records DemoGen created. It restores your previous default company and leaves
+the app installed.
 
 ```bash
-bench --site demo.localhost demo-gen list-packs
-```
-
-```
-Pack                     Countries       Sizes                  Title
-electrical_distributor   IN              small, medium, large   Electrical Equipment Distributor
-furniture_store          AE, DE, IN, US  small, medium, large   Furniture Store; ...
-Default pack per country: AE furniture_store, DE furniture_store, IN furniture_store, US furniture_store
-```
-
-```bash
-bench --site demo.localhost demo-gen install --country IN --pack electrical_distributor
-bench --site demo.localhost demo-gen install --country IN      # furniture_store, the default for India
-```
-
-- `--pack` is optional. Each country has a default pack.
-- One pack can exist in several countries. The country is not part of the pack name.
-
-### Choose the size
-
-```bash
-bench --site demo.localhost demo-gen install --country US --size small    # 3 months, about 300 documents, 1 minute
-bench --site demo.localhost demo-gen install --country US                 # medium: 12 months, about 1,200 documents, 5 minutes
-bench --site demo.localhost demo-gen install --country US --size large   # 24 months, about 19,000 documents, 1 to 2 hours
-```
-
-- `small` is for quick tests and bug reports. It still has every kind of document
-  the demo makes, but few customers and items.
-- `medium` is the default and suits most demos.
-- `large` looks like a real business, but takes an hour or more.
-  [Download a ready-made snapshot](#download-a-ready-made-snapshot) instead, and restore it in seconds.
-- Times for every pack are under [Sizes](#sizes).
-
-### Get the same data again, or different data
-
-```bash
-bench --site demo.localhost demo-gen install --country IN --seed 7
-```
-
-- The seed picks the names, items, customers and amounts. The default is 1.
-- The same seed, options and `--end-date` give the same data on any site.
-  Without `--end-date`, the data ends today, so dates shift from day to day.
-- A different seed gives a different company with different data.
-
-```bash
-bench --site demo.localhost demo-gen install --country IN --end-date 2026-03-31
-```
-
-- Data ends on `--end-date`. The default is today.
-- `2026-03-31` ends the data at the close of India's fiscal year.
-
-### Name the demo company
-
-```bash
-bench --site demo.localhost demo-gen install --country US --demo-company-name "Lone Star Furniture Inc"
-# Creates the company "Lone Star Furniture Inc" and makes it the default company.
-
-bench --site demo.localhost demo-gen uninstall --yes
-# Deletes "Lone Star Furniture Inc" and restores the default company you had before.
-```
-
-- Without `--demo-company-name`, the name is made up from the seed.
-
-### Choose the home state
-
-The demo company's address is in the pack's home state. Change it with `--home-state`:
-
-```bash
-bench --site demo.localhost demo-gen install --country IN --home-state MH         # Maharashtra (default: Tamil Nadu)
-bench --site demo.localhost demo-gen install --country IN --home-state 27         # the same, by GST state code
-bench --site demo.localhost demo-gen install --country AE --home-state SH         # Sharjah (default: Dubai)
-bench --site demo.localhost demo-gen install --country DE --home-state HH         # Hamburg (default: Bayern)
-```
-
-- India: any state or union territory, by name ("Maharashtra"), two-letter code (MH)
-  or GST state code (27).
-- Customers outside the home state, and suppliers, are placed in the larger
-  commercial states.
-- UAE: an emirate (DU, AZ, SH, AJ, RK, FU, UQ) or its name.
-- Germany: a Bundesland (BY, BE, HH, NW, BW, HE, NI, SN, RP, SH) or its name.
-- US: only TX.
-- Most customers are in the home state; suppliers are spread wider, as for a real business.
-
-### A site that is already in use
-
-If the site already has transactions, install stops and explains:
-
-```bash
-bench --site demo.localhost demo-gen install --country IN
-```
-
-```
-This site already has transactions:
-  Kaveri Traders (default company): 42 documents, 180 GL entries
-The demo goes into a new, separate company (a peer, not a child company) and
-does not change these. It becomes the default company while installed;
-uninstall deletes it and restores the current default.
-This is safe, but because the site is in use, installing needs --force.
-```
-
-```bash
-bench --site demo.localhost demo-gen install --country IN --force
-```
-
-- `--force` is also needed when the GST API is on (India), or with `--unregistered`.
-
-### Stop and resume
-
-```bash
-bench --site demo.localhost demo-gen install --country US --size large
-# ... press Ctrl+C, or the machine restarts ...
-bench --site demo.localhost demo-gen install --country US --size large
-# The same command resumes where it stopped.
-```
-
-### See every document created
-
-```bash
-bench --site demo.localhost demo-gen install --country AE --verbose
-# At the end, prints how many documents of each doctype were created.
-```
-
-Every document is also recorded in the *Demo Data Record* list, under its *Demo Data Run*.
-Uninstall uses that record, together with ERPNext's Transaction Deletion Record.
-
-### Remove one run of several
-
-```bash
-bench --site demo.localhost demo-gen uninstall --run DD-RUN-00009
-```
-
-- Without `--run`, uninstall removes the only active run.
-- `verify --run DD-RUN-00009` checks one run the same way.
-
-### Put the demo into your own company
-
-By default the demo gets a new company. `--use-wizard-company` uses the company
-made by the setup wizard instead:
-
-```bash
-bench --site demo.localhost demo-gen install --country DE --use-wizard-company
-# Adds the demo's documents to your default company.
-# --force is needed only if that company already has transactions.
-
 bench --site demo.localhost demo-gen uninstall
-# Backs up the site first, as bench drop-site does.
-# Then removes only the demo's documents, one by one.
-# Keeps (and lists) any demo document that your own documents refer to.
 ```
+
+**Any transactions you added to the demo company are also deleted.** To preserve your
+additions, use the slower registry-based removal:
 
 ```bash
-bench --site demo.localhost demo-gen uninstall --no-backup     # skip the backup
+bench --site demo.localhost demo-gen uninstall --registry-only
 ```
 
-The company must not have a tax ID. Demo invoices are issued under the company's
-tax ID, so DemoGen never uses a real one:
+Customers, suppliers, and items you created yourself are shared site records and are
+left alone. Accounts, cost centers, and warehouses inside the demo company go when
+that company goes. Add `--yes` to skip the confirmation prompt in scripts.
 
-```bash
-bench --site demo.localhost demo-gen install --country AE --use-wizard-company
-# Error: My Company LLC has a tax ID (Company Tax ID); DemoGen never uses a real one.
-# Install without --use-wizard-company to get a new demo company.
-```
-
-- Tax ID means the company's *Tax ID* field in every country. In India also its GSTIN:
-  on the company, or on one of its own addresses.
-- A new demo company always gets an imaginary tax ID (valid format and check digit).
-
-Country notes:
-
-- Germany: the company must use the SKR04 chart (*SKR04 mit Kontonummern*).
-- India: GST needs a GSTIN, so the demo adds a company address with an imaginary one,
-  titled "(demo, fictitious GSTIN)". Uninstall removes it. To leave GST out instead:
-
-```bash
-bench --site demo.localhost demo-gen install --country IN --use-wizard-company --unregistered --force
-# Treats the company as not registered for GST. No address is added.
-# See "Unregistered businesses" below.
-```
-
-### Keep what you added to the demo company
+<details>
+<summary>Advanced: how removal works and what happens to linked records</summary>
 
 Uninstall can remove a demo company in two ways.
 
@@ -442,32 +478,118 @@ bench --site demo.localhost demo-gen uninstall --registry-only
   are kept. Uninstall lists everything it kept.
 - If you added nothing, it ends the same as the default, only slower: about 5 minutes for
   medium, about 80 minutes for large.
-- Does not need the Redis queue.
+- This deletion path does not itself need the Redis queue; keep the normal Bench services running for DemoGen usage.
 
 In both ways, customers, suppliers and items you created yourself are never deleted
 (they don't belong to a company). Accounts, cost centers and warehouses you added inside
 the demo company go when the company goes.
 `--use-wizard-company` runs are always removed the `--registry-only` way.
 
-## Countries
+If your own records refer to demo records, registry-based removal retains those demo
+records and reports them. Resolve those references and retry removal to finish cleanup.
+This is an exception caused by additions to the demo, rather than the normal removal flow.
 
-All tax notes below are general information, not tax advice.
+</details>
 
-### India
+<details>
+<summary>Advanced: select a run</summary>
 
 ```bash
-bench --site demo.localhost demo-gen install --country IN                                  # furniture showroom
-bench --site demo.localhost demo-gen install --country IN --pack electrical_distributor    # electrical wholesaler
+bench --site demo.localhost demo-gen uninstall --run DD-RUN-00009
 ```
 
-- The demo company is in Tamil Nadu, as an example. Pick another state with `--home-state`.
-- GST through india_compliance: CGST and SGST in the home state, IGST across states.
-- Each item's GST rate comes from its Item Tax Template.
-- Two demo bank accounts, UPI and card receipts, weekly transfers.
-  See [Banks and payments](#banks-and-payments).
-- Unregistered businesses are supported with `--unregistered`. See the next section.
+- Without `--run`, uninstall removes the only active run.
+- `verify --run DD-RUN-00009` checks one run the same way.
 
-### Unregistered businesses (no GST)
+</details>
+
+<details>
+<summary>Advanced: generate data in your existing company</summary>
+
+By default the demo gets a new company. `--use-wizard-company` uses the company
+selected as the site’s default company instead (normally the company made by the setup wizard):
+
+```bash
+bench --site demo.localhost demo-gen install --country DE --use-wizard-company
+# Adds the demo's documents to your default company.
+# --force is needed only if that company already has transactions.
+
+bench --site demo.localhost demo-gen uninstall
+# Backs up the site first, as bench drop-site does.
+# Then removes only the demo's documents, one by one.
+# Keeps (and lists) any demo document that your own documents refer to.
+```
+
+```bash
+bench --site demo.localhost demo-gen uninstall --no-backup     # skip the backup
+```
+
+The company must not have a tax ID. Demo invoices are issued under the company's
+tax ID, so DemoGen never uses a real one:
+
+```bash
+bench --site demo.localhost demo-gen install --country AE --use-wizard-company
+# Error: My Company LLC has a tax ID (Company Tax ID); DemoGen never uses a real one.
+# Install without --use-wizard-company to get a new demo company.
+```
+
+- Tax ID means the company's *Tax ID* field in every country. In India also its GSTIN:
+  on the company, or on one of its own addresses.
+- A new registered demo company gets an imaginary tax ID (valid format and check digit).
+  An unregistered demo company has no tax ID.
+
+Country notes:
+
+- Germany: the company must use the SKR04 chart (*SKR04 mit Kontonummern*).
+- India: GST needs a GSTIN, so the demo adds a company address with an imaginary one,
+  titled "(demo, fictitious GSTIN)". Uninstall removes it. To leave GST out instead:
+
+```bash
+bench --site demo.localhost demo-gen install --country IN --use-wizard-company --unregistered --force
+# Treats the company as not registered for GST. No address is added.
+# See "Unregistered businesses" below.
+```
+
+</details>
+
+## Unregistered businesses
+
+This section describes what the demo does. It is not tax advice; see the [Disclaimer](#disclaimer).
+
+**DemoGen supports businesses not registered for GST/VAT in India, the UAE, and
+Germany.** Use `--unregistered --force` in the CLI, or untick **Registered for tax**
+in Desk and confirm. Registered is the default. The US/Texas demo does not support
+this option: its business sells taxable goods and requires a sales tax permit.
+
+These demos charge no GST/VAT on sales, but purchases can still include tax charged
+by suppliers. That purchase tax cannot be claimed back: DemoGen configures tax
+accounts and templates so it becomes part of stock cost or an expense, as appropriate.
+The country-specific configuration, template selection, and verification checks are below.
+
+The demo keeps the pack's normal business volume, which exceeds the modeled
+registration thresholds. This is why generation requires `--force` or Desk confirmation.
+The option demonstrates the accounting treatment; it does not reduce the demo's turnover.
+
+### Purchase tax categories: Valuation, Total, and Valuation and Total
+
+ERPNext's **Consider Tax or Charge for** field controls whether a purchase tax or
+charge affects stock valuation, the document total, or both:
+
+| Category | Included in stock valuation | Included in document total |
+| --- | --- | --- |
+| `Valuation` | Yes | No |
+| `Total` | No | Yes |
+| `Valuation and Total` | Yes | Yes |
+
+For non-recoverable tax billed by a supplier on stock items, DemoGen uses
+**Valuation and Total**: the tax increases both the stock cost and the amount owed
+to the supplier. Using Valuation alone would omit the tax from the document total;
+using Total alone would not include it in stock valuation. For non-stock purchases,
+such as drinking water, ERPNext changes the category to **Total**, and the tax is
+an expense rather than part of stock value. The account and tax templates determine
+the accounting treatment; the category alone does not mean a tax is recoverable.
+
+### India: unregistered businesses (no GST)
 
 Many small Indian businesses are not registered for GST. This demo can show one:
 
@@ -487,7 +609,7 @@ The demo does the set-up that such a business has to do by hand:
   has no GST, and the amount owed to the supplier is too low.
 
 **Set-up: an expense account and templates without ITC.** The demo creates these.
-A real unregistered company needs the same:
+A real unregistered company would need a similar set-up:
 
 ```
 Account                 GST Not Recoverable        (Expense Account, under Indirect Expenses)
@@ -548,17 +670,108 @@ company, template: Input GST (not recoverable)).
 - `verify` checks that sales carry no GST, and that purchases from registered
   suppliers carry GST only on GST Not Recoverable.
 
+### UAE: unregistered businesses (no VAT)
+
+```bash
+bench --site demo.localhost demo-gen install --country AE --unregistered --force
+```
+
+A business below the registration threshold (AED 375,000 of taxable supplies in 12
+months; voluntary from AED 187,500) does not charge VAT and has no TRN. VAT that its
+suppliers charge cannot be recovered. The demo sets it up the way India's unregistered
+case does (see [India: unregistered businesses](#india-unregistered-businesses-no-gst)):
+
+```
+Account             VAT Not Recoverable  (Expense Account, under Indirect Expenses)
+Purchase template   UAE VAT 5% (not recoverable): one "Valuation and Total" row, 5%,
+                    on that account; used for suppliers with a TRN
+                    stock items: VAT in their cost; non-stock items: an expense
+Empty templates     "No VAT (not registered)" for sales and for suppliers without a TRN,
+                    so ERPNext does not apply the default "UAE VAT 5%"
+Not used            UAE VAT Settings, VAT Emirate, recoverable expenses, VAT 201
+```
+
+- `--force` is needed: the demo's turnover is above the threshold, and install warns.
+- `verify` checks that sales carry no VAT, and that purchase VAT is only on
+  VAT Not Recoverable. The VAT 201 checks are skipped.
+
+### Germany: Kleinunternehmer (no VAT)
+
+```bash
+bench --site demo.localhost demo-gen install --country DE --unregistered --force
+```
+
+A Kleinunternehmer (§ 19 UStG) charges no VAT and cannot deduct input VAT. Since 2025
+the limits are net turnover of at most EUR 25,000 in the previous year and EUR 100,000
+in the current year. The demo sets it up like this:
+
+```
+Sales               no VAT: an empty template "Kleinunternehmer (keine Umsatzsteuer)"
+                    stops ERPNext's default; income to 4185 "Erlöse aus Kleinunternehmer
+                    i. S. d. § 19 Abs. 1 UStG" (the demo's items default to it)
+Invoice note        Terms and Conditions "Kleinunternehmerregelung (§ 19 UStG)" on every
+                    quotation, order and invoice: "Gemäß § 19 UStG enthält der
+                    ausgewiesene Rechnungsbetrag keine Umsatzsteuer."
+Account             Nicht abziehbare Vorsteuer (Kleinunternehmer)  (Expense Account, under
+                    7 - sonstige betriebliche Aufwendungen)
+Purchase template   Lieferung aus dem Inland (Vorsteuer nicht abziehbar): one "Valuation
+                    and Total" row on that account; stock items: VAT in their cost
+                    (§ 9b EStG); non-stock items: an expense
+Item Tax Templates  "19 % (nicht abziehbar)", "7 % (nicht abziehbar)", on each item under
+                    the Tax Category "Vorsteuer nicht abziehbar"
+Tax Category        set on every purchase (German suppliers charge VAT with or without
+                    an USt-IdNr.), so only purchases pick the item's rate; sales lines get none, and "Automatically add
+                    Taxes and Charges from Item Tax Template" can stay on
+Company             no USt-IdNr. (a Kleinunternehmer still has a Steuernummer; not modelled)
+```
+
+- `--force` is needed: the demo's turnover is far above the limits, and install warns.
+- `verify` checks that sales carry no VAT and carry the note, and that bills carry
+  non-deductible VAT at each item's rate (19 % / 7 %). The UStVA checks are skipped.
+
+## Countries
+
+For businesses without GST/VAT registration, see [Unregistered businesses](#unregistered-businesses).
+
+Each demo models a specific local business scenario. Expand a country for tax setup,
+registration options, and limitations. These notes describe what the demo does. They are
+not tax advice; see the [Disclaimer](#disclaimer).
+
+### India
+
+<details>
+<summary>Demo setup and tax details</summary>
+
+```bash
+bench --site demo.localhost demo-gen install --country IN                                  # furniture showroom
+bench --site demo.localhost demo-gen install --country IN --pack electrical_distributor    # electrical wholesaler
+```
+
+- The demo company is in Tamil Nadu, as an example. Pick another state with `--home-state`.
+- GST through india_compliance: CGST and SGST in the home state, IGST across states.
+- Each item's GST rate comes from its Item Tax Template.
+- Two demo bank accounts, UPI and card receipts, weekly transfers.
+  See the banking details under [What the demo includes](#what-the-demo-includes).
+- For `--unregistered`, see [India: unregistered businesses](#india-unregistered-businesses-no-gst).
+
+</details>
+
 ### United States
+
+The US demo uses **Texas (`TX`) as its fixed home state and sells only within Texas**.
+Purchases from suppliers in other US states are supported. This setup was chosen for
+its simpler in-state sales tax scenario. Other home states and interstate sales are
+outside the demo's scope: their tax requirements add complexity and often involve
+third-party services such as TaxJar.
+
+<details>
+<summary>Demo setup and tax details</summary>
 
 ```bash
 bench --site demo.localhost demo-gen install --country US
 ```
 
 - A Texas furniture showroom, with a trade channel (designers and projects).
-- Texas is an example, chosen because its sales tax is simple for a business that
-  sells only in its own state: one combined rate for every sale.
-- Selling into other states, with each state's own rules, is not part of the demo.
-  A real business doing that usually needs a tax service app (TaxJar, Avalara).
 - The demo sells only in Texas, so every sale is taxed at 8.25%.
   That is 6.25% state tax plus the 2% local maximum (Austin: 1% city, 1% transit).
 - The rate is fixed in the pack (`sales_tax` in `us_trading.yaml`). It is never fetched
@@ -587,7 +800,12 @@ categories      Tax Categories "Reseller" and "Out of State", with Tax Rules, so
 - `--unregistered` is refused: a Texas business selling taxable items needs a sales tax
   permit, with no small-business threshold. `--home-state` accepts only TX.
 
+</details>
+
 ### United Arab Emirates
+
+<details>
+<summary>Demo setup and tax details</summary>
 
 ```bash
 bench --site demo.localhost demo-gen install --country AE
@@ -617,32 +835,12 @@ banking         Emirates NBD and Mashreq accounts with valid-format IBANs; wire
 - Not covered: imports and reverse charge, zero-rated exports, tourist refunds,
   excise, designated zones.
 
-#### Unregistered (no VAT)
-
-```bash
-bench --site demo.localhost demo-gen install --country AE --unregistered --force
-```
-
-A business below the registration threshold (AED 375,000 of taxable supplies in 12
-months; voluntary from AED 187,500) does not charge VAT and has no TRN. VAT that its
-suppliers charge cannot be recovered. The demo sets it up the way India's unregistered
-case does (see [Unregistered businesses](#unregistered-businesses-no-gst)):
-
-```
-Account             VAT Not Recoverable  (Expense Account, under Indirect Expenses)
-Purchase template   UAE VAT 5% (not recoverable): one "Valuation and Total" row, 5%,
-                    on that account; used for suppliers with a TRN
-                    stock items: VAT in their cost; non-stock items: an expense
-Empty templates     "No VAT (not registered)" for sales and for suppliers without a TRN,
-                    so ERPNext does not apply the default "UAE VAT 5%"
-Not used            UAE VAT Settings, VAT Emirate, recoverable expenses, VAT 201
-```
-
-- `--force` is needed: the demo's turnover is above the threshold, and install warns.
-- `verify` checks that sales carry no VAT, and that purchase VAT is only on
-  VAT Not Recoverable. The VAT 201 checks are skipped.
+</details>
 
 ### Germany
+
+<details>
+<summary>Demo setup and tax details</summary>
 
 ```bash
 bench --site demo.localhost demo-gen install --country DE
@@ -677,41 +875,48 @@ banking         Stadtsparkasse München and Deutsche Bank accounts with valid-fo
 - Not covered: EU and non-EU trade (reverse charge), Kleinunternehmer suppliers,
   DATEV export, e-invoicing (XRechnung, ZUGFeRD).
 
-#### Kleinunternehmer (no VAT)
+</details>
 
-```bash
-bench --site demo.localhost demo-gen install --country DE --unregistered --force
+## Tax registration
+
+<details>
+<summary>Fictional tax IDs and registration details</summary>
+
+A registered demo company gets imaginary tax IDs (valid format and check digit), shown where
+ERPNext shows them and summed up in the company's *Registration Details*:
+
+```
+India     GSTIN on the company address and on the Company (GST Category "Registered
+          Regular"); PAN in Registration Details
+UAE       TRN as the Company's Tax ID
+Germany   USt-IdNr. as the Tax ID; a Steuernummer in Registration Details
+US        EIN as the Tax ID; the Texas sales and use tax permit (taxpayer number) in
+          Registration Details, since ERPNext has no field for it
 ```
 
-A Kleinunternehmer (§ 19 UStG) charges no VAT and cannot deduct input VAT. Since 2025
-the limits are net turnover of at most EUR 25,000 in the previous year and EUR 100,000
-in the current year. The demo sets it up like this:
+A new unregistered demo company (`--unregistered`, or the unticked option on the page)
+has no tax ID, and its Registration Details says so.
 
-```
-Sales               no VAT: an empty template "Kleinunternehmer (keine Umsatzsteuer)"
-                    stops ERPNext's default; income to 4185 "Erlöse aus Kleinunternehmer
-                    i. S. d. § 19 Abs. 1 UStG" (the demo's items default to it)
-Invoice note        Terms and Conditions "Kleinunternehmerregelung (§ 19 UStG)" on every
-                    quotation, order and invoice: "Gemäß § 19 UStG enthält der
-                    ausgewiesene Rechnungsbetrag keine Umsatzsteuer."
-Account             Nicht abziehbare Vorsteuer (Kleinunternehmer)  (Expense Account, under
-                    7 - sonstige betriebliche Aufwendungen)
-Purchase template   Lieferung aus dem Inland (Vorsteuer nicht abziehbar): one "Valuation
-                    and Total" row on that account; stock items: VAT in their cost
-                    (§ 9b EStG); non-stock items: an expense
-Item Tax Templates  "19 % (nicht abziehbar)", "7 % (nicht abziehbar)", on each item under
-                    the Tax Category "Vorsteuer nicht abziehbar"
-Tax Category        set on every purchase (German suppliers charge VAT with or without
-                    an USt-IdNr.), so only purchases pick the item's rate; sales lines get none, and "Automatically add
-                    Taxes and Charges from Item Tax Template" can stay on
-Company             no USt-IdNr. (a Kleinunternehmer still has a Steuernummer; not modelled)
-```
+**Using your own company (`--use-wizard-company`) requires it to have no existing tax ID.**
+For India, this includes a GSTIN on the Company record or any of its own addresses.
+DemoGen refuses installation if one is present, even with `--force`; it never overwrites
+an existing GSTIN. The existing ID must be manually removed before that company can
+be used for the demo, or you can generate a separate demo company instead.
 
-- `--force` is needed: the demo's turnover is far above the limits, and install warns.
-- `verify` checks that sales carry no VAT and carry the note, and that bills carry
-  non-deductible VAT at each item's rate (19 % / 7 %). The UStVA checks are skipped.
+For an eligible Indian company without a GSTIN, DemoGen adds an imaginary GSTIN for
+the registered demo and removes that demo GSTIN on uninstall. With `--unregistered`,
+it adds no GSTIN. The company's existing Registration Details text is left unchanged.
 
-## Own-use supplies
+</details>
+
+## What the demo includes
+
+Every size includes sales and purchases, draft and submitted documents, payments,
+returns, stock movements, office supplies, bank transfers, and reconciliation.
+Use ERPNext’s standard lists and reports to explore the demo company.
+
+<details>
+<summary>Office supplies and replenishment</summary>
 
 Every pack also buys supplies for its own use, as any business does:
 
@@ -733,7 +938,10 @@ When an item reaches its reorder level:
 The reorder job itself does not run during an install. To see it work afterwards, turn on
 "Raise Material Request when stock reaches re-order level" in Stock Settings.
 
-## Banks and payments
+</details>
+
+<details>
+<summary>Banks, payment modes, transfers, and reconciliation</summary>
 
 Every demo company gets two bank accounts of its own, in every country:
 
@@ -831,18 +1039,32 @@ a business with bank loans of Rs 5 crore or more may keep only a *collection* ac
 at a bank that does not lend to it, and that account must pass its money on to the
 lending bank promptly.
 
+</details>
+
 ## Sizes
+
+| Size | History | Typical use |
+| --- | --- | --- |
+| `small` | 3 months | Quick tests and bug reports; generate directly |
+| `medium` | 12 months | Most demos; generate or restore a snapshot |
+| `large` | 24 months | Larger datasets; prefer a snapshot to save generation time |
+
+CLI generation defaults to `medium`; the Desk form starts with `small`.
+Counts and timings depend on the pack and machine.
+
+<details>
+<summary>Document counts, measured timings, and scenario coverage</summary>
 
 Measured on a laptop (MariaDB in Docker). ERPNext takes about 0.3 to 0.4 s to submit
 each document, so time grows with the number of documents.
 
-```
-furniture_store (IN)       small   ~290 docs, 1.2 min    medium  ~1,200 docs, 5 min   large   ~18,500 docs, 1.5 h
-electrical_distributor     small   ~320 docs, 1.4 min    medium  ~1,500 docs, 6 min   large   ~23,300 docs, 2 to 2.5 h
-furniture_store (US)       small   ~300 docs, 1 min      medium  ~1,200 docs, 5 min   large   ~19,000 docs, 1.7 h
-furniture_store (AE)       small   ~300 docs, 1 min      medium  ~1,200 docs, 5 min   large   ~18,900 docs, 1 h (CI)
-furniture_store (DE)       small   ~310 docs, 1 min      medium  ~1,200 docs, 4 min   large   ~19,400 docs, 1 h (CI)
-```
+| Pack / country | Small: documents / time | Medium: documents / time | Large: documents / time |
+| --- | --- | --- | --- |
+| Furniture / India | ~290 / 1.2 min | ~1,200 / 5 min | ~18,500 / 1.5 h |
+| Electrical distributor / India | ~320 / 1.4 min | ~1,500 / 6 min | ~23,300 / 2–2.5 h |
+| Furniture / US | ~300 / 1 min | ~1,200 / 5 min | ~19,000 / 1.7 h |
+| Furniture / UAE | ~300 / 1 min | ~1,200 / 5 min | ~18,900 / 1 h (CI) |
+| Furniture / Germany | ~310 / 1 min | ~1,200 / 4 min | ~19,400 / 1 h (CI) |
 
 - small: 3 months; medium: 12 months; large: 24 months.
 - Every size covers every kind of document: quotations won and lost, orders, deliveries,
@@ -851,7 +1073,12 @@ furniture_store (DE)       small   ~310 docs, 1 min      medium  ~1,200 docs, 4 
 - The planner checks this for every size. It adjusts a few documents when a short run
   would miss something.
 
-## Reading the reports
+</details>
+
+### Reading the reports
+
+Select the demo company in each report’s filters and use dates within its generated
+data period.
 
 - **Stock Balance shows fewer rows than the pack has items.** The report leaves out
   items with no stock. A demo ends with one or two fast sellers sold out, as in real
@@ -860,17 +1087,31 @@ furniture_store (DE)       small   ~310 docs, 1 min      medium  ~1,200 docs, 4 
 
 ## Snapshots
 
-A snapshot is a ready-made demo site: a database dump plus a manifest.
+A **snapshot** is a pre-generated demo site: a database dump (`.sql.gz`) plus a manifest
+(`.json`) recording versions, data dates, and a checksum. Restore one to avoid waiting
+for medium or large demos to generate. **Published snapshots cover medium and large
+only; small demos generate quickly, so create those directly.**
+
+Download files from **Assets** on the appropriate GitHub release page:
+
+| Your Frappe/ERPNext branch | Release assets |
+| --- | --- |
+| version 16 | Monthly `snapshots-v16-YYYY-MM` sets in the [release list](https://github.com/thava/erpnext_demo_gen/releases); for example [November 2026](https://github.com/thava/erpnext_demo_gen/releases/tag/snapshots-v16-2026-11) |
+| develop | Rolling [snapshots-develop release](https://github.com/thava/erpnext_demo_gen/releases/tag/snapshots-develop) |
+
+Keep the dump and its manifest together. Use the release's compatibility notes to
+choose a set for your bench. Up to the latest three monthly version-16 sets are retained.
 
 - Restoring one takes about 15 seconds. A live install takes minutes or hours.
 - A snapshot site is disposable: explore it, then drop it with `bench drop-site`.
-- Snapshot commands need no `--site`. They create their own sites.
+- Snapshot commands need no `--site`. They create their own sites and never overwrite an existing site.
+- The restored site's user is **Administrator**, with password **`changeme`** unless
+  you pass `--admin-password` to `snapshot new-site`.
 
 ### Download a ready-made snapshot
 
-Ready-made snapshots are published every month as releases named `snapshots-v16-YYYY-MM`.
-The last three months are kept. Each set has Medium and Large snapshots for every
-country and pack, built and verified in CI:
+Monthly version-16 sets and the rolling develop release contain medium and large
+snapshots for every country and pack, built and verified in CI:
 
 ```
 India            furniture_store, electrical_distributor     medium, large
@@ -878,6 +1119,10 @@ United States    furniture_store                              medium, large
 UAE              furniture_store                              medium, large
 Germany          furniture_store                              medium, large
 ```
+
+Use GitHub CLI (`gh`) for the examples below, or download from **Assets** in your
+browser. Replace the example monthly tag with a compatible release from the list.
+For a develop bench, use `snapshots-develop` as the release tag instead.
 
 See which sets exist, then download one and make a site from it:
 
@@ -906,17 +1151,20 @@ bench demo-gen snapshot new-site munich.localhost demo-furniture_store-DE-large-
 - File names follow `demo-<pack>-<country>-<size>-...`, so `'*-AE-medium*'` picks
   the UAE's Medium snapshot. Without `gh`, download from the release page in a browser.
 - India snapshots need india_compliance on the bench.
-- The data ends on the day the set was built.
+- Published sets use the build date as their data end date. Custom builds can use `--end-date`.
 
 **Which set fits your bench.** Each release lists the Frappe and ERPNext versions it
 was built on, for example Frappe 16.56.0 and ERPNext 16.54.0. A snapshot restores on a
-bench with the same Frappe and ERPNext versions or later ones: restoring migrates it
+bench with the same Frappe and ERPNext versions or later releases of the same major version: restoring migrates it
 forward. So if your bench runs an earlier version-16 minor release of Frappe or
 ERPNext than the newest set, pick an older set built on that release or before it.
 `new-site` checks this and says when a set is too new.
 
-Small and Medium demos also install directly in a few minutes, and a snapshot you
-build yourself (below) can be reused as often as you like.
+Small demos generate in about a minute; medium demos typically take several minutes.
+You can also build a reusable snapshot with your own seed and end date (see below).
+
+<details>
+<summary>Advanced: version-16 nightly and develop refresh schedules</summary>
 
 **Nightly.** The pre-release
 [snapshots-v16-nightly](https://github.com/thava/erpnext_demo_gen/releases/tag/snapshots-v16-nightly) has the
@@ -950,7 +1198,10 @@ develop keeps one version number (such as `17.0.0-dev`) while its code changes d
 so `new-site` compares commit dates there: a snapshot from an older commit is migrated,
 one from a newer commit is refused until you update the bench.
 
-### Build your own
+</details>
+
+<details>
+<summary>Advanced: build and restore your own snapshot</summary>
 
 Build a snapshot when you want another seed, an end date of your own, or a
 snapshot that matches your bench exactly:
@@ -979,7 +1230,7 @@ bench demo-gen snapshot new-site austin.localhost \
       demo-snapshots/demo-furniture_store-US-large-s1-f16.56.0-e16.54.0-dd0.1.0-20261111.sql.gz \
       --admin-password secret
 # Checks the checksum and versions, then creates austin.localhost from the dump.
-# Prints the build date and the data period. The data ends on the build date.
+# Prints the build date and the data period recorded in the manifest.
 ```
 
 - The site has one company (the demo company) and one user, Administrator.
@@ -999,22 +1250,97 @@ bench --site austin.localhost set-admin-password secret
 # so set it afterwards.
 ```
 
-## Development
+</details>
+
+## Troubleshooting
+
+| Symptom | What to do |
+| --- | --- |
+| Redis is unreachable or Desk is waiting for a worker | Keep `bench start` running. On a managed bench, check Redis and workers, including the `long` queue. Desk also needs the web server. |
+| Desk reports stale worker code after an update | Restart workers (`bench restart`, or restart `bench start` in development). |
+| Generation stopped | Re-run the same CLI command with the same options, or choose **Resume install** in Desk. |
+| Site already has transactions | Review the company named in the message. Use `--force` if you intend to proceed, or confirm in Desk. |
+| Country dependency error | Use a site configured for the demo country. India needs India Compliance; other supported countries need a site without it. |
+| Verification fails | Read the failed checks and run log. Include them in a bug report; **Completed** alone does not mean verification passed. |
+| Snapshot is newer than your bench | Choose an older compatible set or update your bench. For develop, follow the release's compatibility notes. |
+
+**Worker running but the demo is still waiting?** By default, `bench start` runs one
+worker for the `long` queue. If that worker is busy with another long batch process,
+start an additional worker from your bench directory in another terminal:
 
 ```bash
-bench --site demo-data.localhost run-tests --app erpnext_demo_gen
+bench worker --queue long
+```
+
+Keep that terminal running while the worker processes jobs.
+
+For support, include the command or Desk action, run ID, country, pack, size, seed,
+end date, Frappe/ERPNext and DemoGen versions, and relevant error or failed checks.
+See [Contributing](CONTRIBUTING.md) for reporting issues.
+
+## Command reference
+
+<details>
+<summary>All DemoGen commands</summary>
+
+Syntax reference: `|` separates choices; brackets mark optional arguments.
+Use the runnable examples above when copying commands into a terminal.
+
+```text
+bench --site <site> demo-gen list-packs
+bench --site <site> demo-gen install --country IN|US|AE|DE [--pack NAME] [--size small|medium|large]
+      [--seed N] [--end-date YYYY-MM-DD] [--home-state STATE] [--demo-company-name NAME]
+      [--use-wizard-company] [--unregistered] [--force] [--verbose]
+bench --site <site> demo-gen status
+bench --site <site> demo-gen history [--run DD-RUN-00001] [--limit 20]
+bench --site <site> demo-gen verify [--run DD-RUN-00001]
+bench --site <site> demo-gen uninstall [--run DD-RUN-00001] [--yes] [--registry-only] [--no-backup]
+bench demo-gen snapshot build --country IN|US|AE|DE [--pack NAME] [--size small|medium|large] [--seed N]
+      [--end-date YYYY-MM-DD] [--out DIR] [--db-root-password PW]
+      [--mariadb-user-host-login-scope SCOPE]
+bench demo-gen snapshot new-site NAME DUMP.sql.gz [--admin-password PW]
+      [--db-root-password PW] [--mariadb-user-host-login-scope SCOPE]
+```
+
+</details>
+
+## Development
+
+Run the tests on a development site that has the app installed and `allow_tests` set
+(`bench --site demo.localhost set-config allow_tests true`):
+
+```bash
+bench --site demo.localhost run-tests --app erpnext_demo_gen
 # unit tests: planner, packs, generators
 
-bench --site demo-data.localhost execute erpnext_demo_gen.tests.smoke.run \
+bench --site demo.localhost execute erpnext_demo_gen.tests.smoke.run \
       --kwargs '{"country": "IN", "pack": "furniture_store", "seed": 11}'
 # small install, verify, uninstall, then compare document counts
 # add "size": "medium" (or "large") to test a larger size
 ```
 
+The same tests run in CI on every change and every night; see the badges at the top.
+
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports, questions and ideas are welcome as
-issues. Pull requests are not accepted for now.
+Bug reports, testing, documentation corrections, questions, and ideas are welcome.
+Please share them through issues; pull requests are not accepted at this stage.
+See [Contributing](CONTRIBUTING.md) for details.
+
+## Disclaimer
+
+DemoGen generates fictional data to demonstrate ERPNext. Its tax set-ups (GST in India,
+sales and use tax in Texas, VAT in the UAE and Germany, and the treatment of unregistered
+businesses) are simplified examples chosen to make a realistic demo. They are not tax,
+legal or accounting advice.
+
+The author is not a tax professional. Tax rules differ by jurisdiction and change over
+time, and the rates, thresholds and references in this document may be incomplete or out
+of date. Before using any of these configurations in a real business, have them reviewed
+by a qualified tax professional in the relevant country.
+
+All companies, people and tax IDs in the demo data are made up. Tax IDs follow the real
+formats but belong to no one.
 
 ## License
 

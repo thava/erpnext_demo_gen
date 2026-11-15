@@ -1,18 +1,20 @@
 # Contributing
 
-Thank you for your interest in erpnext_demo_gen.
+Contributions to DemoGen are welcome. You can help by reporting bugs, testing demos,
+improving documentation, sharing ideas, and explaining business scenarios the demo
+could support.
 
-This project does not accept pull requests at the moment, so that it stays under a
-single author while its design settles. Pull requests will be closed with a link to
-this page; please do not take it personally.
+Please [open an issue](https://github.com/thava/erpnext_demo_gen/issues) to share:
 
-What is welcome:
+- **Bug reports and test results**: include the command or Desk action, country,
+  pack, size, seed, end date, app versions, and the error or failing `verify` check.
+- **Documentation corrections**: point to the relevant section and suggest clearer
+  wording or missing information.
+- **Questions and feature ideas**: describe what you want to do and why. Suggestions
+  for new countries, packs, and business workflows are especially useful.
 
-- **Bug reports**: open an issue with the command you ran, the country, pack, size and
-  seed, your Frappe and ERPNext versions, and the error or the failing `verify` check.
-- **Questions and ideas**: open an issue; new countries and packs are especially
-  interesting.
-- **Forks**: the code is GPL-3.0, so you are free to fork and change it under the same
-  licence.
+Pull requests are not accepted at this stage. Please share proposed changes through
+issues; examples and suggested approaches are welcome.
 
-This may change later; if it does, this page will say how to contribute.
+The project is licensed under GPL-3.0. You are welcome to fork and modify it under
+that licence.
