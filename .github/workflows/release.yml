@@ -5,11 +5,11 @@ name: Snapshots release
 # when all ten pass. App versions (tags vX.Y.Z) are released separately and carry no
 # snapshots.
 #
-#   monthly (1st)     version-16: a new release snapshots-YYYY-MM built on the current
+#   monthly (1st)     version-16: a new release snapshots-v16-YYYY-MM built on the current
 #                     version-16 of Frappe, ERPNext and india_compliance. The three newest
 #                     sets are kept, so benches on an earlier version-16 minor release can
 #                     use an older set (restore migrates forward).
-#   daily             develop: the rolling pre-release develop-snapshots. Its files are
+#   daily             develop: the rolling pre-release snapshots-develop. Its files are
 #                     rebuilt (and replaced) when
 #                       - it is Sunday (IST), so the data is never more than a week old,
 #                       - this app changed since they were built (docs do not count), or
@@ -74,7 +74,7 @@ jobs:
             build=true; reason="weekly rebuild"
           else
             mkdir published
-            gh release download develop-snapshots -R "$GITHUB_REPOSITORY" -p '*-large-*.json' -D published || true
+            gh release download snapshots-develop -R "$GITHUB_REPOSITORY" -p '*-large-*.json' -D published || true
             manifest=$(ls published/*.json 2>/dev/null | head -1)
             if [ -z "$manifest" ]; then
               build=true; reason="no published snapshots"
@@ -104,7 +104,7 @@ jobs:
     env:
       FRAPPE_BRANCH: develop
       SKIP_SITES: "1"
-      TAG: develop-snapshots
+      TAG: snapshots-develop
     services:
       mariadb:
         image: mariadb:11.8
@@ -174,10 +174,10 @@ jobs:
         id: tag
         run: |
           if [ "$CHANNEL" = develop ]; then
-            echo "tag=develop-snapshots" >> "$GITHUB_OUTPUT"
+            echo "tag=snapshots-develop" >> "$GITHUB_OUTPUT"
             echo "branch=develop" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=snapshots-$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+            echo "tag=snapshots-v16-$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
             echo "branch=version-16" >> "$GITHUB_OUTPUT"
           fi
       - name: Create the release if missing
@@ -192,7 +192,7 @@ jobs:
           else
             # a draft until all ten pass
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --latest=false \
-              --target "$GITHUB_SHA" --title "Snapshots ${TAG#snapshots-} (Frappe/ERPNext version-16)" \
+              --target "$GITHUB_SHA" --title "Snapshots ${TAG#snapshots-v16-} (Frappe/ERPNext version-16)" \
               --notes "Snapshots are being built."
           fi
 
@@ -305,7 +305,7 @@ jobs:
           else:
               print("Restores on a bench with these Frappe and ERPNext versions or later ones of version-16:")
               print("restoring migrates it forward. For an earlier version-16 minor release of Frappe or")
-              print("ERPNext, use an older `snapshots-YYYY-MM` set.\n")
+              print("ERPNext, use an older `snapshots-v16-YYYY-MM` set.\n")
           print("## Snapshots\n")
           for m in sorted(rows, key=lambda m: (order.index(m["country"]), m["pack_name"], m["size"] != "medium")):
               docs = sum(m["documents"].values())
@@ -332,7 +332,7 @@ jobs:
         if: env.CHANNEL == 'monthly'
         run: |
           gh release list -R "$GITHUB_REPOSITORY" --limit 100 --json tagName,isDraft -q '.[] | select(.isDraft | not) | .tagName' \
-            | { grep -E '^snapshots-[0-9]{4}-[0-9]{2}$' || true; } | sort -r | tail -n +$((KEEP_MONTHS + 1)) \
+            | { grep -E '^snapshots-v16-[0-9]{4}-[0-9]{2}$' || true; } | sort -r | tail -n +$((KEEP_MONTHS + 1)) \
             | while read -r old; do
                 echo "removing $old"
                 gh release delete "$old" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
@@ -349,4 +349,4 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: |
-          bash .github/ci/release-status.sh develop-snapshots "🔴 the rebuild on $(date -u +%F) failed ([run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)): develop has changed in a way DemoGen does not handle yet. The files below are the last that passed."
+          bash .github/ci/release-status.sh snapshots-develop "🔴 the rebuild on $(date -u +%F) failed ([run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)): develop has changed in a way DemoGen does not handle yet. The files below are the last that passed."

@@ -861,7 +861,7 @@ A snapshot is a ready-made demo site: a database dump plus a manifest.
 
 ### Download a ready-made snapshot
 
-Ready-made snapshots are published every month as releases named `snapshots-YYYY-MM`.
+Ready-made snapshots are published every month as releases named `snapshots-v16-YYYY-MM`.
 The last three months are kept. Each set has Medium and Large snapshots for every
 country and pack, built and verified in CI:
 
@@ -875,24 +875,24 @@ Germany          furniture_store                              medium, large
 See which sets exist, then download one and make a site from it:
 
 ```bash
-gh release list -R thava/erpnext_demo_gen     # the snapshots-YYYY-MM releases
+gh release list -R thava/erpnext_demo_gen     # the snapshots-v16-YYYY-MM releases
 
 # India
-gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-IN-large*'
+gh release download snapshots-v16-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-IN-large*'
 # Downloads the dump (.sql.gz) and its manifest (.json).
 bench demo-gen snapshot new-site mumbai.localhost demo-furniture_store-IN-large-*.sql.gz
 # Creates mumbai.localhost with two years of data, in about 15 seconds.
 
 # United States
-gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-US-large*'
+gh release download snapshots-v16-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-US-large*'
 bench demo-gen snapshot new-site austin.localhost demo-furniture_store-US-large-*.sql.gz
 
 # UAE
-gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-AE-large*'
+gh release download snapshots-v16-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-AE-large*'
 bench demo-gen snapshot new-site dubai.localhost demo-furniture_store-AE-large-*.sql.gz
 
 # Germany
-gh release download snapshots-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-DE-large*'
+gh release download snapshots-v16-2026-11 -R thava/erpnext_demo_gen -p '*furniture_store-DE-large*'
 bench demo-gen snapshot new-site munich.localhost demo-furniture_store-DE-large-*.sql.gz
 ```
 
@@ -912,11 +912,11 @@ Small and Medium demos also install directly in a few minutes, and a snapshot yo
 build yourself (below) can be reused as often as you like.
 
 **Nightly.** The pre-release
-[nightly-v16](https://github.com/thava/erpnext_demo_gen/releases/tag/nightly-v16) has the
+[snapshots-v16-nightly](https://github.com/thava/erpnext_demo_gen/releases/tag/snapshots-v16-nightly) has the
 Large version-16 snapshots built from this app's `main` branch.
 
 ```bash
-gh release download nightly-v16 -R thava/erpnext_demo_gen -p '*furniture_store-IN-large*'
+gh release download snapshots-v16-nightly -R thava/erpnext_demo_gen -p '*furniture_store-IN-large*'
 bench demo-gen snapshot new-site mumbai.localhost demo-furniture_store-IN-large-*.sql.gz
 ```
 
@@ -929,7 +929,7 @@ bench demo-gen snapshot new-site mumbai.localhost demo-furniture_store-IN-large-
 - Use a monthly set when you want Medium, or a set that stays the same.
 
 **develop.** For the next major version, the pre-release
-[develop-snapshots](https://github.com/thava/erpnext_demo_gen/releases/tag/develop-snapshots)
+[snapshots-develop](https://github.com/thava/erpnext_demo_gen/releases/tag/snapshots-develop)
 has the same snapshots built on Frappe and ERPNext `develop`.
 
 - They are rebuilt every Sunday, and sooner when this app changes.

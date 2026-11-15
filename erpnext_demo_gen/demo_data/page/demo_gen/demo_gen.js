@@ -543,7 +543,7 @@ class DemoGenPage {
 				"uninstall --registry-only"
 			)}, ${code("uninstall --no-backup")}.</p>
 			<p><strong>${__("Snapshots")}</strong>: ${__(
-				"ready-made demo sites to restore in seconds, in the monthly snapshots-YYYY-MM releases on GitHub, or built with"
+				"ready-made demo sites to restore in seconds, in the monthly snapshots-v16-YYYY-MM releases on GitHub, or built with"
 			)} ${code("bench demo-gen snapshot build --country IN --size medium")}.</p>
 			<p><a href="${DG_README}" target="_blank" rel="noopener">${__("README: the full guide")}</a></p>
 		`);

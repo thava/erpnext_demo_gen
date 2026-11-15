@@ -18,7 +18,7 @@ name: CI
 # A failure means ERPNext, india_compliance or this app has drifted.
 #
 # Large version-16 snapshots built on main are also published to the rolling
-# pre-release nightly-v16: each new file replaces the earlier build of the same
+# pre-release snapshots-v16-nightly: each new file replaces the earlier build of the same
 # country and pack, so the release always holds the newest verified build of each.
 
 on:
@@ -239,7 +239,7 @@ jobs:
           key: ${{ steps.upstream.outputs.key }}
 
   publish-nightly:
-    name: Publish nightly-v16
+    name: Publish snapshots-v16-nightly
     # Runs even when a snapshot job failed: each file was restored and verified by its own
     # job, and a failed one simply keeps its earlier build in the release.
     needs: [plan, snapshots]
@@ -250,7 +250,7 @@ jobs:
       actions: read
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: nightly-v16
+      TAG: snapshots-v16-nightly
     steps:
       - name: Large version-16 snapshots built by this run
         id: built
@@ -296,7 +296,7 @@ jobs:
           print("Large demo snapshots for **Frappe/ERPNext version-16**, built from this app's `main`.")
           print("A snapshot is rebuilt on a night when Frappe, ERPNext, india_compliance or this app")
           print("changed, and replaces its earlier build here. For dated, stable sets (medium and")
-          print("large) see the monthly `snapshots-YYYY-MM` releases.\n")
+          print("large) see the monthly `snapshots-v16-YYYY-MM` releases.\n")
           print("Update the app before restoring (`bench update --apps erpnext_demo_gen`): these")
           print("snapshots can be newer than the latest tagged version of the app.\n")
           print("## Snapshots\n")
