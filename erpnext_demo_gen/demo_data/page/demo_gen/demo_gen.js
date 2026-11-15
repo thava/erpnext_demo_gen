@@ -19,6 +19,35 @@ frappe.pages["demo-gen"].on_page_show = function (wrapper) {
 	if (wrapper.demo_gen) wrapper.demo_gen.refresh();
 };
 
+// A service message as dialog HTML. The service wraps its text at about 80 columns for the
+// terminal; shown as-is in a narrow dialog, those line ends break lines a second time. So
+// lines of one paragraph are joined and left to the dialog to wrap, and indented lines
+// (the list of companies and their document counts) become a list.
+function dg_message_html(text) {
+	const esc = frappe.utils.escape_html;
+	const out = [];
+	let para = [];
+	let items = [];
+	const flush = () => {
+		if (para.length) out.push(`<p>${esc(para.join(" "))}</p>`);
+		if (items.length) out.push(`<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`);
+		para = [];
+		items = [];
+	};
+	for (const line of String(text || "").split("\n")) {
+		if (!line.trim()) flush();
+		else if (/^\s/.test(line)) {
+			if (para.length) out.push(`<p>${esc(para.join(" "))}</p>`), (para = []);
+			items.push(line.trim());
+		} else {
+			if (items.length) flush();
+			para.push(line.trim());
+		}
+	}
+	flush();
+	return out.join("");
+}
+
 class DemoGenPage {
 	constructor(page) {
 		this.page = page;
@@ -475,9 +504,9 @@ class DemoGenPage {
 		}
 		if (r.confirm) {
 			frappe.confirm(
-				`<pre class="dg-log" style="white-space: pre-wrap">${frappe.utils.escape_html(r.confirm)}</pre><p>${frappe.utils.escape_html(
+				`${dg_message_html(r.confirm)}<p><b>${frappe.utils.escape_html(
 					r.question || __("Install anyway?")
-				)}</p>`,
+				)}</b></p>`,
 				() => this.install(1)
 			);
 			return;
