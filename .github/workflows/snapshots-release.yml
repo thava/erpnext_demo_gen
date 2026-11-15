@@ -1,4 +1,4 @@
-name: Snapshots release
+name: "Snapshots: release"
 
 # Publishes ready-made snapshots: medium and large for every country and pack, one job
 # each. Each snapshot is restored on a new site and verified; a set is published only
@@ -12,7 +12,8 @@ name: Snapshots release
 #   daily             develop: the rolling pre-release snapshots-develop. Its files are
 #                     rebuilt (and replaced) when
 #                       - it is Sunday (IST), so the data is never more than a week old,
-#                       - this app changed since they were built (docs do not count), or
+#                       - this app's code changed since they were built (the erpnext_demo_gen
+#                         folder and pyproject.toml, so not docs or workflows), or
 #                       - the daily check below failed.
 #                     On the other days the published large snapshots are restored on
 #                     that day's develop and verified, which takes minutes, not hours.
@@ -83,10 +84,10 @@ jobs:
               commit=${commit%-dirty}
               if ! git cat-file -e "$commit^{commit}" 2>/dev/null; then
                 build=true; reason="the published snapshots are from an unknown app commit ($commit)"
-              elif ! git diff --quiet "$commit" HEAD -- . ':!*.md' ':!license.txt'; then
-                build=true; reason="this app changed since $commit"
+              elif ! git diff --quiet "$commit" HEAD -- erpnext_demo_gen pyproject.toml; then
+                build=true; reason="this app's code changed since $commit"
               else
-                check=true; reason="this app is unchanged since $commit"
+                check=true; reason="this app's code is unchanged since $commit"
               fi
             fi
           fi

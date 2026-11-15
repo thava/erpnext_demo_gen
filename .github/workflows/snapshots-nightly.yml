@@ -1,41 +1,35 @@
-name: CI
+name: "Snapshots: nightly"
 
-# Every push and pull request: unit tests and a small-size smoke test per pack (install,
-# verify, uninstall, compare table counts), India, US, UAE and Germany, on Frappe,
-# ERPNext and india_compliance version-16 and again on develop (the next major
-# version). develop failures are reported but do not fail the run: they warn early
-# about changes coming in the next major version.
-#
-# Snapshots (one job each; every snapshot is restored on a new site and verified,
-# then kept as a build artifact for 14 days):
+# Builds demo snapshots every night as a deeper test of the generator than the small
+# installs in the test workflows (tests-v16.yml, tests-develop.yml), one job each.
+# Every snapshot is restored on a new site and verified, then kept as a build artifact
+# for 14 days:
 #   nightly          medium, every country and pack, on version-16 and develop;
 #                    large on version-16. A snapshot is skipped when neither upstream
-#                    (frappe, erpnext, india_compliance) nor this app changed since
-#                    its last successful nightly build. On Sunday (IST) the large
-#                    ones are built regardless, so their data is never more than a
-#                    week old. (develop's large snapshots are built by release.yml.)
+#                    (frappe, erpnext, india_compliance) nor this app's code (the
+#                    erpnext_demo_gen folder and pyproject.toml, so not docs or
+#                    workflows) changed since its last successful nightly build.
+#                    On Sunday (IST) the large ones are built regardless, so their
+#                    data is never more than a week old. (develop's large snapshots
+#                    are built by snapshots-release.yml.)
 #   workflow_dispatch  any size, branch and country, never skipped.
-# A failure means ERPNext, india_compliance or this app has drifted.
+# A failure means ERPNext, india_compliance or this app has drifted. develop failures
+# are reported but do not fail the run.
 #
 # Large version-16 snapshots built on main are also published to the rolling
 # pre-release snapshots-v16-nightly: each new file replaces the earlier build of the same
 # country and pack, so the release always holds the newest verified build of each.
 
 on:
-  push:
-    branches: [main]
-    paths-ignore: ["**.md", "license.txt"] # docs-only commits need no tests
-  pull_request:
-    paths-ignore: ["**.md", "license.txt"]
   schedule:
-    - cron: "30 20 * * *" # nightly, 02:00 IST: tests and snapshots
+    - cron: "30 20 * * *" # nightly, 02:00 IST
   workflow_dispatch:
     inputs:
       snapshots:
-        description: Snapshots to build after the tests
+        description: Snapshots to build
         type: choice
-        default: none
-        options: [none, small, medium, medium+large, large]
+        default: medium
+        options: [small, medium, medium+large, large]
       branch:
         description: Frappe/ERPNext branch for the snapshots
         type: choice
@@ -48,9 +42,8 @@ on:
         options: [all, IN, US, AE, DE]
 
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.event_name }}
-  # pushes replace older pushes; scheduled and manual runs queue instead
-  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+  group: snapshots-nightly-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false # scheduled and manual runs queue
 
 permissions:
   contents: read
@@ -60,70 +53,8 @@ env:
   BENCH: /home/runner/frappe-bench
 
 jobs:
-  tests:
-    name: Unit and smoke tests (${{ matrix.frappe_branch }})
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        frappe_branch: [version-16, develop]
-    continue-on-error: ${{ matrix.frappe_branch == 'develop' }}
-    env:
-      FRAPPE_BRANCH: ${{ matrix.frappe_branch }}
-    services:
-      mariadb:
-        image: mariadb:11.8
-        env:
-          MARIADB_ROOT_PASSWORD: root
-        ports: ["3306:3306"]
-        options: >-
-          --health-cmd="healthcheck.sh --connect --innodb_initialized"
-          --health-interval=5s --health-timeout=5s --health-retries=30
-      redis:
-        image: redis:7-alpine
-        ports: ["6379:6379"]
-    steps:
-      - uses: actions/checkout@v5
-      - uses: ./.github/actions/setup-bench
-      - name: Unit tests
-        working-directory: ${{ env.BENCH }}
-        run: bench --site ci.localhost run-tests --app erpnext_demo_gen
-      - name: Smoke test, furniture_store small
-        working-directory: ${{ env.BENCH }}
-        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN furniture_store small 1
-      - name: Smoke test, electrical_distributor small
-        working-directory: ${{ env.BENCH }}
-        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN electrical_distributor small 1
-      - name: Smoke test, furniture_store small in the wizard company (made-up GSTIN address)
-        working-directory: ${{ env.BENCH }}
-        run: |
-          bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN furniture_store small 1 ci.localhost '"use_wizard_company": True'
-      - name: Smoke test, furniture_store small, unregistered (no GST)
-        working-directory: ${{ env.BENCH }}
-        run: |
-          bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN furniture_store small 1 ci.localhost '"unregistered": True'
-      - name: Smoke test, furniture_store_us small (US site)
-        working-directory: ${{ env.BENCH }}
-        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" US furniture_store small 1 ci-us.localhost
-      - name: Smoke test, furniture_store (AE) small (UAE site)
-        working-directory: ${{ env.BENCH }}
-        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" AE furniture_store small 1 ci-ae.localhost
-      - name: Smoke test, furniture_store (AE) small, unregistered (UAE site)
-        working-directory: ${{ env.BENCH }}
-        run: |
-          bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" AE furniture_store small 1 ci-ae.localhost '"unregistered": True'
-      - name: Smoke test, furniture_store (DE) small (Germany site)
-        working-directory: ${{ env.BENCH }}
-        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" DE furniture_store small 1 ci-de.localhost
-      - name: Smoke test, furniture_store (DE) small, Kleinunternehmer (Germany site)
-        working-directory: ${{ env.BENCH }}
-        run: |
-          bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" DE furniture_store small 1 ci-de.localhost '"unregistered": True'
-
   plan:
     name: Plan snapshots
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.snapshots != 'none')
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -161,7 +92,7 @@ jobs:
 
   snapshots:
     name: Snapshot ${{ matrix.branch }} ${{ matrix.country }} ${{ matrix.pack }} ${{ matrix.size }}
-    needs: [tests, plan]
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 330
     strategy:
@@ -184,11 +115,17 @@ jobs:
         image: redis:7-alpine
         ports: ["6379:6379"]
     steps:
-      - name: Upstream commits
+      - name: Upstream commits and this app's code
         id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           head() { git ls-remote "https://github.com/$1" "refs/heads/$FRAPPE_BRANCH" | cut -c1-12; }
-          key="$(head frappe/frappe)-$(head frappe/erpnext)-$(head resilient-tech/india-compliance)-${GITHUB_SHA::12}"
+          # the app's code only, read before any checkout: a docs or workflow commit rebuilds nothing
+          app=$(gh api "repos/$GITHUB_REPOSITORY/git/trees/$GITHUB_SHA" \
+            -q '[.tree[] | select(.path == "erpnext_demo_gen" or .path == "pyproject.toml") | .sha[0:8]] | join("-")' || true)
+          app=${app:-${GITHUB_SHA::12}} # fall back to the commit: at worst an extra build
+          key="$(head frappe/frappe)-$(head frappe/erpnext)-$(head resilient-tech/india-compliance)-$app"
           echo "key=nightly-${{ matrix.branch }}-${{ matrix.country }}-${{ matrix.pack }}-${{ matrix.size }}-$key" >> "$GITHUB_OUTPUT"
           echo "frappe, erpnext, india_compliance and this app at: $key"
       - name: Built already?

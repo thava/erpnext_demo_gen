@@ -1,0 +1,78 @@
+name: Tests (shared)
+
+# The tests themselves, called by tests-v16.yml and tests-develop.yml with the Frappe
+# branch to test against: unit tests, then a small-size smoke test per pack (install,
+# verify, uninstall, compare table counts) for India, the US, the UAE and Germany, on
+# that branch of Frappe, ERPNext and india_compliance.
+
+on:
+  workflow_call:
+    inputs:
+      frappe_branch:
+        description: Branch of Frappe, ERPNext and india_compliance (version-16 or develop)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  DB_ROOT_PASSWORD: root
+  BENCH: /home/runner/frappe-bench
+
+jobs:
+  tests:
+    name: Unit and smoke tests (${{ inputs.frappe_branch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      FRAPPE_BRANCH: ${{ inputs.frappe_branch }}
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-bench
+      - name: Unit tests
+        working-directory: ${{ env.BENCH }}
+        run: bench --site ci.localhost run-tests --app erpnext_demo_gen
+      - name: Smoke test, furniture_store small
+        working-directory: ${{ env.BENCH }}
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN furniture_store small 1
+      - name: Smoke test, electrical_distributor small
+        working-directory: ${{ env.BENCH }}
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN electrical_distributor small 1
+      - name: Smoke test, furniture_store small in the wizard company (made-up GSTIN address)
+        working-directory: ${{ env.BENCH }}
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN furniture_store small 1 ci.localhost '"use_wizard_company": True'
+      - name: Smoke test, furniture_store small, unregistered (no GST)
+        working-directory: ${{ env.BENCH }}
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" IN furniture_store small 1 ci.localhost '"unregistered": True'
+      - name: Smoke test, furniture_store_us small (US site)
+        working-directory: ${{ env.BENCH }}
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" US furniture_store small 1 ci-us.localhost
+      - name: Smoke test, furniture_store (AE) small (UAE site)
+        working-directory: ${{ env.BENCH }}
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" AE furniture_store small 1 ci-ae.localhost
+      - name: Smoke test, furniture_store (AE) small, unregistered (UAE site)
+        working-directory: ${{ env.BENCH }}
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" AE furniture_store small 1 ci-ae.localhost '"unregistered": True'
+      - name: Smoke test, furniture_store (DE) small (Germany site)
+        working-directory: ${{ env.BENCH }}
+        run: bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" DE furniture_store small 1 ci-de.localhost
+      - name: Smoke test, furniture_store (DE) small, Kleinunternehmer (Germany site)
+        working-directory: ${{ env.BENCH }}
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/ci/smoke.sh" DE furniture_store small 1 ci-de.localhost '"unregistered": True'

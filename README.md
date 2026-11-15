@@ -1,6 +1,13 @@
 # erpnext_demo_gen: Demo Generator for ERPNext
 
+[![Tests: version-16](https://github.com/thava/erpnext_demo_gen/actions/workflows/tests-v16.yml/badge.svg?branch=main)](https://github.com/thava/erpnext_demo_gen/actions/workflows/tests-v16.yml)
+[![Tests: develop](https://github.com/thava/erpnext_demo_gen/actions/workflows/tests-develop.yml/badge.svg?branch=main)](https://github.com/thava/erpnext_demo_gen/actions/workflows/tests-develop.yml)
+
 Fills an ERPNext site with realistic demo data. One command adds it; one command removes it.
+
+The badges show whether DemoGen's tests pass on Frappe/ERPNext version-16 and on develop
+(the next major version). They run on every change to this app, and every night against
+that day's Frappe and ERPNext.
 
 ## What it does
 

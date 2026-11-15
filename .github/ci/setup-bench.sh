@@ -2,8 +2,8 @@
 # Set up a Frappe v16 bench with erpnext, india_compliance and this app, and four sites
 # with the setup wizard completed: $SITE (India, with india_compliance), $US_SITE (United
 # States), $AE_SITE (United Arab Emirates) and $DE_SITE (Germany, SKR04 chart); the last
-# three have erpnext and this app only. Used by every CI job (.github/workflows/ci.yml).
-# SKIP_SITES=1 stops after the apps (release.yml: snapshot build makes its own sites).
+# three have erpnext and this app only. Used by the test and snapshot workflows (.github/workflows).
+# SKIP_SITES=1 stops after the apps (snapshots-release.yml: snapshot build makes its own sites).
 #
 # Expects MariaDB on 127.0.0.1:3306 (root password $DB_ROOT_PASSWORD) and Redis on
 # 127.0.0.1:6379, both as service containers. The app's checkout is $GITHUB_WORKSPACE.

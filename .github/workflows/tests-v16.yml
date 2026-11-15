@@ -1,0 +1,31 @@
+name: "Tests: version-16"
+
+# Does DemoGen work on Frappe/ERPNext version-16? Unit and smoke tests (tests-shared.yml).
+# The README's "version-16" badge shows the result of this workflow on main.
+#
+# Runs on every push and pull request (docs-only changes are skipped), and every night,
+# so a change in Frappe, ERPNext or india_compliance shows up within a day.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "license.txt"] # docs-only commits need no tests
+  pull_request:
+    paths-ignore: ["**.md", "license.txt"]
+  schedule:
+    - cron: "30 20 * * *" # nightly, 02:00 IST
+  workflow_dispatch:
+
+concurrency:
+  group: tests-version-16-${{ github.ref }}-${{ github.event_name }}
+  # pushes replace older pushes; scheduled and manual runs queue instead
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests-shared.yml
+    with:
+      frappe_branch: version-16

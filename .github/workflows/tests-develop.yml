@@ -1,0 +1,32 @@
+name: "Tests: develop"
+
+# Does DemoGen work on Frappe/ERPNext develop (the next major version)? Unit and smoke
+# tests (tests-shared.yml). A failure here warns early about changes coming in that version.
+# The README's "develop" badge shows the result of this workflow on main.
+#
+# Runs on every push and pull request (docs-only changes are skipped), and every night,
+# so a change in Frappe, ERPNext or india_compliance shows up within a day.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "license.txt"] # docs-only commits need no tests
+  pull_request:
+    paths-ignore: ["**.md", "license.txt"]
+  schedule:
+    - cron: "40 20 * * *" # nightly, 02:10 IST
+  workflow_dispatch:
+
+concurrency:
+  group: tests-develop-${{ github.ref }}-${{ github.event_name }}
+  # pushes replace older pushes; scheduled and manual runs queue instead
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests-shared.yml
+    with:
+      frappe_branch: develop
