@@ -4,7 +4,7 @@
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2026-11-13 09:00:00.000000",
+ "modified": "2026-11-15 13:30:00.000000",
  "modified_by": "Administrator",
  "module": "Demo Data",
  "name": "demo-gen",
@@ -19,5 +19,5 @@
  "standard": "Yes",
  "style": null,
  "system_page": 0,
- "title": "DemoGen"
+ "title": "Demo Data Generator (DemoGen)"
 }

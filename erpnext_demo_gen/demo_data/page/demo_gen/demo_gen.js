@@ -9,7 +9,7 @@ const DG_WAIT_HINT_S = 10; // a queued job that has not started by then: no work
 frappe.pages["demo-gen"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
-		title: __("DemoGen"),
+		title: __("Demo Data Generator (DemoGen)"),
 		single_column: true,
 	});
 	wrapper.demo_gen = new DemoGenPage(page);
@@ -53,9 +53,12 @@ class DemoGenPage {
 		</div>`).appendTo(this.page.main);
 		this.$body
 			.find(".dg-intro")
-			.text(
+			.html(
 				__(
-					"DemoGen, an extended demo data generator for ERPNext, adds a demo company with months of realistic transactions (India, United States, UAE, Germany) and removes it again."
+					"{0} generates realistic demo data for ERPNext. It creates a new demo company, fills it with data and makes it your default company. Your own companies and data are not changed. You can uninstall the demo at any time: that removes everything it created and restores your previous default company.",
+					[
+						'<a href="https://github.com/thava/erpnext_demo_gen" target="_blank" rel="noopener">DemoGen</a>',
+					]
 				)
 			);
 		frappe.realtime.on("demo_gen_progress", (live) => this.on_live(live));
@@ -337,7 +340,7 @@ class DemoGenPage {
 			<div class="dg-note"></div><div class="dg-actions"></div></div>`).appendTo($i);
 		$card.find(".dg-note").html(
 			__(
-				"DemoGen creates a new demo company and makes it the default company. You can switch the default back at any time (Global Defaults), and uninstall restores your previous default. Installing into your own company is not offered here (CLI only)."
+				"While the demo is installed you can switch the default company back at any time (Global Defaults). Installing into your own company is not offered here (CLI only)."
 			)
 		);
 		const usable = (c) => !c.missing_apps.length && !c.site_problem;
