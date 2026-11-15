@@ -284,6 +284,11 @@ jobs:
           built = rows[0]["built_at"][:10]
           if channel == "develop":
               print(f"**Status:** 🟢 built and verified on develop, {built}.\n")
+          print("A snapshot is a ready-made demo site: a database dump with DemoGen's demo data already")
+          print("installed, which restores into a new site in about 15 seconds. Snapshots come in the")
+          print("medium and large sizes only. A small demo installs in about a minute, so it is not")
+          print("offered as a snapshot.\n")
+          if channel == "develop":
               print(f"Demo snapshots for Frappe/ERPNext **develop** (the next major version), built {built}.")
               print("Rebuilt every Sunday, and sooner when this app changes or the files stop restoring")
               print("on develop. On the other days they are restored on that day's develop and verified;")

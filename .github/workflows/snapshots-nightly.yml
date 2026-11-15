@@ -230,6 +230,10 @@ jobs:
           rows = [json.load(open(f)) for f in sorted(glob.glob("*.json"))]
           names = {"IN": "India", "US": "United States", "AE": "UAE", "DE": "Germany"}
           order = list(names)
+          print("A snapshot is a ready-made demo site: a database dump with DemoGen's demo data already")
+          print("installed, which restores into a new site in about 15 seconds. This release has the")
+          print("large size only. A small demo installs in about a minute, so it is not offered as a")
+          print("snapshot.\n")
           print("Large demo snapshots for **Frappe/ERPNext version-16**, built from this app's `main`.")
           print("A snapshot is rebuilt on a night when Frappe, ERPNext, india_compliance or this app")
           print("changed, and replaces its earlier build here. For dated, stable sets (medium and")
