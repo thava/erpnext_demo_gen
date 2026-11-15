@@ -9,15 +9,25 @@ name: Snapshots release
 #                     version-16 of Frappe, ERPNext and india_compliance. The three newest
 #                     sets are kept, so benches on an earlier version-16 minor release can
 #                     use an older set (restore migrates forward).
-#   weekly (Sunday)   develop: the rolling pre-release develop-snapshots, rebuilt on
-#                     develop; its files are replaced each time.
-#   workflow_dispatch either channel; a second monthly run in a month replaces that
-#                     month's files.
+#   daily             develop: the rolling pre-release develop-snapshots. Its files are
+#                     rebuilt (and replaced) when
+#                       - it is Sunday (IST), so the data is never more than a week old,
+#                       - this app changed since they were built (docs do not count), or
+#                       - the daily check below failed.
+#                     On the other days the published large snapshots are restored on
+#                     that day's develop and verified, which takes minutes, not hours.
+#                     The first line of the release notes says how that went:
+#                       green   restored and verified today, or rebuilt today
+#                       yellow  failed to restore today; a rebuild is running
+#                       red     the rebuild failed too: develop broke the generator.
+#                               The files stay: they are the last that passed.
+#   workflow_dispatch either channel, always a rebuild; a second monthly run in a month
+#                     replaces that month's files.
 
 on:
   schedule:
     - cron: "0 0 1 * *" # monthly, 05:30 IST on the 1st: version-16 set
-    - cron: "30 22 * * 6" # weekly, Sunday 04:00 IST: develop set
+    - cron: "30 22 * * *" # daily, 04:00 IST: develop set, checked or rebuilt
   workflow_dispatch:
     inputs:
       channel:
@@ -41,8 +51,120 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  decide:
+    name: Rebuild or check
+    runs-on: ubuntu-24.04
+    outputs:
+      channel: ${{ steps.decide.outputs.channel }}
+      build: ${{ steps.decide.outputs.build }}
+      check: ${{ steps.decide.outputs.check }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # to compare with the commit the published snapshots were built on
+      - id: decide
+        run: |
+          build=false; check=false
+          if [ "$CHANNEL" != develop ]; then
+            build=true; reason="monthly set"
+          elif [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            build=true; reason="started by hand"
+          elif [ "$(date -u +%u)" = 6 ]; then
+            # the run at 22:30 UTC on Saturday is Sunday 04:00 IST
+            build=true; reason="weekly rebuild"
+          else
+            mkdir published
+            gh release download develop-snapshots -R "$GITHUB_REPOSITORY" -p '*-large-*.json' -D published || true
+            manifest=$(ls published/*.json 2>/dev/null | head -1)
+            if [ -z "$manifest" ]; then
+              build=true; reason="no published snapshots"
+            else
+              commit=$(python3 -c "import json, sys; print(json.load(open(sys.argv[1]))['apps']['erpnext_demo_gen']['commit'])" "$manifest")
+              commit=${commit%-dirty}
+              if ! git cat-file -e "$commit^{commit}" 2>/dev/null; then
+                build=true; reason="the published snapshots are from an unknown app commit ($commit)"
+              elif ! git diff --quiet "$commit" HEAD -- . ':!*.md' ':!license.txt'; then
+                build=true; reason="this app changed since $commit"
+              else
+                check=true; reason="this app is unchanged since $commit"
+              fi
+            fi
+          fi
+          echo "::notice::$CHANNEL: $([ $build = true ] && echo rebuild || echo 'restore check') ($reason)"
+          { echo "channel=$CHANNEL"; echo "build=$build"; echo "check=$check"; } >> "$GITHUB_OUTPUT"
+
+  check:
+    name: Restore the published develop snapshots
+    needs: decide
+    if: needs.decide.outputs.check == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      failed: ${{ steps.restore.outputs.failed }}
+    env:
+      FRAPPE_BRANCH: develop
+      SKIP_SITES: "1"
+      TAG: develop-snapshots
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-bench
+      - name: Restore and verify each large snapshot
+        id: restore
+        working-directory: ${{ env.BENCH }}
+        run: |
+          # A failed restore does not fail this job: it starts a rebuild (see the jobs below).
+          mkdir published
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p '*-large-*' -D published
+          failed=""; n=0
+          for dump in published/*.sql.gz; do
+            n=$((n + 1)); site="check-$n.localhost"
+            echo "::group::$(basename "$dump")"
+            # snapshot new-site checks the checksum and versions, restores, migrates and runs verify
+            if bench demo-gen snapshot new-site "$site" "$PWD/$dump" --admin-password restore-check \
+                --db-root-password "$DB_ROOT_PASSWORD" --mariadb-user-host-login-scope '%'; then
+              echo "passed"
+            else
+              failed="$failed $(basename "$dump" | sed -E 's/^demo-(.*)-large-.*/\1/')"
+            fi
+            echo "::endgroup::"
+            bench drop-site "$site" --db-root-password "$DB_ROOT_PASSWORD" --no-backup --force || true
+          done
+          [ "$n" -gt 0 ] || { echo "no large snapshots in $TAG"; failed=" all"; }
+          if [ -n "$failed" ]; then
+            echo "::warning::failed to restore on today's develop:$failed"
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            echo "names=${failed# }" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Status, yellow
+        if: steps.restore.outputs.failed == 'true'
+        run: |
+          bash .github/ci/release-status.sh "$TAG" "🟡 failed to restore on develop of $(date -u +%F) (${{ steps.restore.outputs.names }}). A rebuild is running; the files below are the last that passed."
+      - name: Status, green
+        if: steps.restore.outputs.failed == 'false'
+        run: |
+          bash .github/ci/release-status.sh "$TAG" "🟢 restores on develop of $(date -u +%F): every large snapshot restored, migrated and verified."
+
   draft:
     name: Prepare release
+    # a rebuild: decided above, or the restore check failed (or could not even run)
+    needs: [decide, check]
+    if: >-
+      ${{ !cancelled() && needs.decide.result == 'success' && (needs.decide.outputs.build == 'true'
+      || needs.check.outputs.failed == 'true' || needs.check.result == 'failure') }}
     runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
@@ -77,6 +199,7 @@ jobs:
   snapshot:
     name: ${{ needs.draft.outputs.branch }} ${{ matrix.target.country }} ${{ matrix.target.pack }} ${{ matrix.size }}
     needs: draft
+    if: ${{ !cancelled() && needs.draft.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 330
     strategy:
@@ -130,6 +253,7 @@ jobs:
   publish:
     name: Publish
     needs: [draft, snapshot]
+    if: ${{ !cancelled() && needs.snapshot.result == 'success' }}
     runs-on: ubuntu-24.04
     env:
       TAG: ${{ needs.draft.outputs.tag }}
@@ -158,8 +282,11 @@ jobs:
           order = list(names)
           built = rows[0]["built_at"][:10]
           if channel == "develop":
+              print(f"**Status:** 🟢 built and verified on develop, {built}.\n")
               print(f"Demo snapshots for Frappe/ERPNext **develop** (the next major version), built {built}.")
-              print("Rebuilt every week; its files are replaced each time.\n")
+              print("Rebuilt every Sunday, and sooner when this app changes or the files stop restoring")
+              print("on develop. On the other days they are restored on that day's develop and verified;")
+              print("the status line above says how that went.\n")
           else:
               print(f"Demo snapshots for **Frappe/ERPNext version-16**, built {built}. A new set is")
               print("published every month and the last three are kept. See the README's")
@@ -210,3 +337,16 @@ jobs:
                 echo "removing $old"
                 gh release delete "$old" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
               done
+
+  status:
+    name: Status, red
+    # develop only: a rebuild was needed and did not publish, so the status line says so
+    needs: [decide, draft, snapshot, publish]
+    if: >-
+      ${{ !cancelled() && needs.decide.outputs.channel == 'develop' && needs.draft.result == 'success'
+      && needs.publish.result != 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          bash .github/ci/release-status.sh develop-snapshots "🔴 the rebuild on $(date -u +%F) failed ([run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)): develop has changed in a way DemoGen does not handle yet. The files below are the last that passed."

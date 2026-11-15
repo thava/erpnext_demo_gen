@@ -930,7 +930,15 @@ bench demo-gen snapshot new-site mumbai.localhost demo-furniture_store-IN-large-
 
 **develop.** For the next major version, the pre-release
 [develop-snapshots](https://github.com/thava/erpnext_demo_gen/releases/tag/develop-snapshots)
-has the same snapshots built on Frappe and ERPNext `develop`, rebuilt every week.
+has the same snapshots built on Frappe and ERPNext `develop`.
+
+- They are rebuilt every Sunday, and sooner when this app changes.
+- On the other days CI restores the published Large snapshots on that day's develop
+  and verifies them. The first line of the release notes shows the result: green when
+  they restored (or were just rebuilt), yellow while a rebuild runs after a failed
+  restore, red when the rebuild failed too. The files stay in place either way: they
+  are the last ones that passed.
+
 develop keeps one version number (such as `17.0.0-dev`) while its code changes daily,
 so `new-site` compares commit dates there: a snapshot from an older commit is migrated,
 one from a newer commit is refused until you update the bench.
