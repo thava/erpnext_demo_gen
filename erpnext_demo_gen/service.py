@@ -117,7 +117,7 @@ def site_in_use(params: dict, force: bool, log=print):
 			"uninstall deletes it and restores the current default."
 		)
 		ask = "This is safe, but because the site is in use, installing needs --force."
-		confirm = "This is safe. Install anyway?"
+		confirm = "This is safe. Confirm install?"
 	if not force:
 		raise NeedsForce(f"This site already has transactions:\n{listing}\n{effect}", ask, confirm)
 	log(f"Note (--force): this site already has transactions:\n{listing}\n{effect}")
