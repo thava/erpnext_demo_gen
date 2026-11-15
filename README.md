@@ -911,6 +911,23 @@ ERPNext than the newest set, pick an older set built on that release or before i
 Small and Medium demos also install directly in a few minutes, and a snapshot you
 build yourself (below) can be reused as often as you like.
 
+**Nightly.** The pre-release
+[nightly-v16](https://github.com/thava/erpnext_demo_gen/releases/tag/nightly-v16) has the
+Large version-16 snapshots built from this app's `main` branch.
+
+```bash
+gh release download nightly-v16 -R thava/erpnext_demo_gen -p '*furniture_store-IN-large*'
+bench demo-gen snapshot new-site mumbai.localhost demo-furniture_store-IN-large-*.sql.gz
+```
+
+- A snapshot is rebuilt on a night when Frappe, ERPNext, india_compliance or this app
+  changed, and every Sunday regardless, and replaces its earlier build. So there is one
+  file per country and pack, each shows its own build date, and the data is at most a
+  week old.
+- Update the app first (`bench update --apps erpnext_demo_gen`): a nightly snapshot can
+  be newer than the latest tagged version of the app.
+- Use a monthly set when you want Medium, or a set that stays the same.
+
 **develop.** For the next major version, the pre-release
 [develop-snapshots](https://github.com/thava/erpnext_demo_gen/releases/tag/develop-snapshots)
 has the same snapshots built on Frappe and ERPNext `develop`, rebuilt every week.
